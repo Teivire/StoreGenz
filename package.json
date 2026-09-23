@@ -10,7 +10,8 @@
     "init-db": "node scripts/init-db.js",
     "backup": "node scripts/backup-db.js --print",
     "restore": "node scripts/restore-backup.js",
-    "verify-concurrency": "node scripts/verify-concurrency.js"
+    "verify-concurrency": "node scripts/verify-concurrency.js",
+    "verify-api": "node scripts/verify-api.js"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
