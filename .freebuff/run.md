@@ -19,6 +19,8 @@
   - **Restore**: `npm run restore -- backups/<file>.json --yes` (refuses without `--yes`; set `RESTORE_DB=<name>` to restore into a scratch database for testing).
   - **Retention**: every backup prunes `backups/` to the 30 newest files.
 - Concurrency regression check (dev server must be running): `npm run verify-concurrency` — races the sales/refund endpoints with a scratch product and asserts the money invariants (distinct invoice numbers under concurrent checkout, exact stock decrement, single-winner refunds, single restock). Cleans up after itself; exits non-zero on any broken invariant.
+- API contract suite (dev server must be running): `npm run verify-api` — 23 table-driven cases: cookie sessions (login/whoami/logout/deactivation cutoff), header login, sale validation, stock boundary, refund lifecycle, role gating. Cleans up after itself.
+- Auth: browser mutations authenticate via an HttpOnly `pos_session` cookie (`sessions` collection, 30-day TTL); scripts/tests may still use the `X-Staff-Name`/`X-Staff-Pin` headers. Deactivating a staff member kills their sessions instantly.
 
 ## Run the server
 ```
