@@ -39,7 +39,9 @@ const seedStaff: StaffMember[] = [
 ];
 
 type SaleLine = { name: string; sku: string; price: number; qty: number };
-type SaleStatus = "Paid" | "Pending" | "Refunded";  type Sale = { id: string; customer: string; date: string; payment: string; status: SaleStatus; lines: SaleLine[]; refundReason?: string; servedBy?: string; createdAt?: string };
+type SaleStatus = "Paid" | "Pending" | "Refunded";  type Sale = { id: string; customer: string; date: string; payment: string; status: SaleStatus; lines: SaleLine[]; refundReason?: string; servedBy?: string; createdAt?: string; amountPaid?: number; changeDue?: number };
+  /** What the payment form collects for one checkout. */
+  type SalePayment = { customer: string; payment: string; amountPaid?: number };
 
 const toLine = (p: Product, qty = 1): SaleLine => ({ name: p.name, sku: p.sku, price: p.price, qty });
 const seedSales: Sale[] = [
@@ -173,15 +175,21 @@ export default function Home() {
     }
   };
 
-  const recordSale = (lines: SaleLine[], done?: (ok: boolean) => void) => {
+  const recordSale = (lines: SaleLine[], payment: SalePayment, done?: (ok: boolean, sale?: Sale) => void) => {
     const prev = sales;
-    const local: Sale = { id: `#INV-${parseInt(prev[0].id.slice(5), 10) + 1}`, customer: "Walk-in customer", date: "Just now", payment: "Cash", status: "Paid", lines };
+    const saleTotal = lines.reduce((sum, l) => sum + l.price * l.qty, 0);
+    const local: Sale = { id: `#INV-${parseInt(prev[0].id.slice(5), 10) + 1}`, customer: payment.customer, date: "Just now", payment: payment.payment, status: "Paid", lines, ...(payment.amountPaid !== undefined ? { amountPaid: payment.amountPaid, changeDue: Math.max(0, Math.round((payment.amountPaid - saleTotal) * 100) / 100) } : {}) };
+    let created: Sale | undefined;
     applyOrRollback(
       () => setSales([local, ...prev]),
-      () => authFetch("/api/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lines }) }),
+      async () => {
+        const res = await authFetch("/api/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lines, customer: payment.customer, payment: payment.payment, ...(payment.amountPaid !== undefined ? { amountPaid: payment.amountPaid } : {}) }) });
+        if (res.ok) created = await res.json() as Sale;
+        return res;
+      },
       () => setSales(prev),
       "Sale not recorded",
-      () => { refreshAll(); done?.(true); },
+      () => { refreshAll(); done?.(true, created); },
       () => done?.(false)
     );
   };
@@ -487,7 +495,7 @@ function ProductFormModal({ catalog, initial, onClose, onSave }: { catalog: Prod
 
 type SalesTab = "pos" | "history" | "returns" | "receipts";
 
-function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, receiptFooter, currency }: { catalog: Product[]; sales: Sale[]; onRecord: (lines: SaleLine[], done?: (ok: boolean) => void) => void; onRefund: (id: string, reason: string, done?: (ok: boolean) => void) => void; storeName: string; storeLocation: string; receiptFooter: string; currency: string }) {
+function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, receiptFooter, currency }: { catalog: Product[]; sales: Sale[]; onRecord: (lines: SaleLine[], payment: SalePayment, done?: (ok: boolean, sale?: Sale) => void) => void; onRefund: (id: string, reason: string, done?: (ok: boolean) => void) => void; storeName: string; storeLocation: string; receiptFooter: string; currency: string }) {
   const [tab, setTab] = useState<SalesTab>("pos");
   const [historyQuery, setHistoryQuery] = useState("");
   const [cart, setCart] = useState<SaleLine[]>([]);
@@ -495,7 +503,7 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
   const [busy, setBusy] = useState(false);
   // Ref mirrors `busy` synchronously: two clicks in the same tick must not both pass the guard.
   const busyRef = useRef(false);
-  const [justCheckedOut, setJustCheckedOut] = useState(false);
+  const [justCheckedOut, setJustCheckedOut] = useState<Sale | null>(null);
   const [viewing, setViewing] = useState<Sale | null>(null);
   const [refunding, setRefunding] = useState<Sale | null>(null);
   const [refundNote, setRefundNote] = useState("");
@@ -508,7 +516,17 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
   const switchTab = (t: SalesTab) => { setTab(t); setRefundDone(null); };
   const startRefund = (s: Sale) => { setViewing(null); setRefundNote(""); setRefundDone(null); setRefunding(s); };
   const confirmRefund = () => { if (!refunding || busyRef.current) return; busyRef.current = true; const target = refunding; setBusy(true); onRefund(target.id, refundNote, ok => { busyRef.current = false; setBusy(false); if (ok) setRefundDone(target.id); setRefunding(null); }); };
-  const checkout = () => { if (busyRef.current || cart.length === 0) return; busyRef.current = true; setBusy(true); onRecord(cart, ok => { busyRef.current = false; setBusy(false); if (ok) { setCart([]); setJustCheckedOut(true); } }); };
+  const [paying, setPaying] = useState(false);
+  const openPayment = () => { if (busyRef.current || cart.length === 0) return; setJustCheckedOut(null); setPaying(true); };
+  const doCheckout = (p: SalePayment) => {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true);
+    onRecord(cart, p, (ok, sale) => {
+      busyRef.current = false; setBusy(false);
+      setPaying(false);
+      if (ok) { setCart([]); setJustCheckedOut(sale ?? null); }
+    });
+  };
 
   return <><PageHeading title="Sales" sub="Create sales and review payment activity" action="Sales history" onAction={()=>switchTab("history")}/><div className="subnav">
     <button className={`tab ${tab==="pos"?"active":""}`} onClick={()=>switchTab("pos")}>New sale / POS</button>
@@ -517,16 +535,50 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
     <button className={`tab ${tab==="receipts"?"active":""}`} onClick={()=>switchTab("receipts")}>Receipts</button>
   </div>
   {refundDone && <p className="checkout-success success-banner" role="status">Refund for {refundDone} recorded successfully.</p>}
-  {tab==="pos" && <div className="pos-layout"><div className="panel product-picker"><div className="toolbar"><h2>Choose products</h2><div className="filter"><Search size={15}/><input value={productQuery} onChange={e=>setProductQuery(e.target.value)} placeholder="Search products"/></div></div><div className="picker-grid">{visibleProducts.map(p=>{const inCart=cart.find(l=>l.sku===p.sku)?.qty??0;const left=p.stock-inCart;return <button key={p.sku} className="picker-card" disabled={left<=0} onClick={()=>{setJustCheckedOut(false);setCart(c=>c.some(l=>l.sku===p.sku)?c.map(l=>l.sku===p.sku?{...l,qty:l.qty+1}:l):[...c,toLine(p)]);}}><div className="picker-thumb">{p.image?<img src={p.image} alt=""/>:<div className="product-placeholder"><Package size={20}/></div>}</div><strong>{p.name}</strong><span>{money(p.price)} · {left<=0?"none left":"in stock: "+left}</span></button>;})}{visibleProducts.length===0&&<div className="empty">No products match your search.</div>}</div></div><div className="panel cart-panel"><div className="panel-header"><h2>Current sale</h2><span className="status paid">{cart.reduce((n,l)=>n+l.qty,0)} items</span></div>{cart.length===0?<div className="empty">Your cart is empty</div>:<div className="cart-lines">{cart.map((l,i)=><div className="cart-line" key={l.sku}><div><strong>{l.name}</strong><span>{money(l.price)} × {l.qty}</span></div><button aria-label={`Remove ${l.name}`} onClick={()=>setCart(c=>c.filter((_,idx)=>idx!==i))}><X size={14}/></button></div>)}</div>}<div className="cart-total"><span>Subtotal</span><strong>{money(total)}</strong></div>{justCheckedOut&&<p className="checkout-success" role="status">Sale recorded successfully.</p>}<button className="primary-button checkout" disabled={cart.length===0||busy} onClick={checkout}>{busy ? "Charging…" : `Charge ${money(total)}`}</button></div></div>}
+  {tab==="pos" && <div className="pos-layout"><div className="panel product-picker"><div className="toolbar"><h2>Choose products</h2><div className="filter"><Search size={15}/><input value={productQuery} onChange={e=>setProductQuery(e.target.value)} placeholder="Search products"/></div></div><div className="picker-grid">{visibleProducts.map(p=>{const inCart=cart.find(l=>l.sku===p.sku)?.qty??0;const left=p.stock-inCart;return <button key={p.sku} className="picker-card" disabled={left<=0} onClick={()=>{setJustCheckedOut(null);setCart(c=>c.some(l=>l.sku===p.sku)?c.map(l=>l.sku===p.sku?{...l,qty:l.qty+1}:l):[...c,toLine(p)]);}}><div className="picker-thumb">{p.image?<img src={p.image} alt=""/>:<div className="product-placeholder"><Package size={20}/></div>}</div><strong>{p.name}</strong><span>{money(p.price)} · {left<=0?"none left":"in stock: "+left}</span></button>;})}{visibleProducts.length===0&&<div className="empty">No products match your search.</div>}</div></div><div className="panel cart-panel"><div className="panel-header"><h2>Current sale</h2><span className="status paid">{cart.reduce((n,l)=>n+l.qty,0)} items</span></div>{cart.length===0?<div className="empty">Your cart is empty</div>:<div className="cart-lines">{cart.map((l,i)=><div className="cart-line" key={l.sku}><div><strong>{l.name}</strong><span>{money(l.price)} × {l.qty}</span></div><button aria-label={`Remove ${l.name}`} onClick={()=>setCart(c=>c.filter((_,idx)=>idx!==i))}><X size={14}/></button></div>)}</div>}<div className="cart-total"><span>Subtotal</span><strong>{money(total)}</strong></div>{justCheckedOut&&<p className="checkout-success" role="status">Sale {justCheckedOut.id} recorded.{justCheckedOut.changeDue ? ` Change due ${money(justCheckedOut.changeDue)}.` : ""}</p>}<button className="primary-button checkout" disabled={cart.length===0||busy} onClick={openPayment}>{busy ? "Charging…" : `Charge ${money(total)}`}</button></div></div>}
   {tab==="history" && <div className="panel table-panel"><div className="toolbar"><strong>{historyQuery ? `${historyMatches.length} of ${sales.length} sales` : `${sales.length} sales`}</strong><div className="filter"><Search size={15}/><input placeholder="Search invoice or customer" value={historyQuery} onChange={e=>setHistoryQuery(e.target.value)}/>{historyQuery&&<button className="filter-clear" aria-label="Clear sales search" onClick={()=>setHistoryQuery("")}><X size={13}/></button>}</div></div>{historyMatches.length===0?<div className="empty">No sales match your search.</div>:<SalesTable sales={historyMatches} onView={setViewing} onRefund={startRefund}/>}</div>}
   {tab==="returns" && <><div className="panel table-panel"><div className="toolbar"><strong>Refundable sales</strong><div className="filter"><Search size={15}/><input placeholder="Search sales" readOnly/></div><button className="select-button">All payments <ChevronDown size={14}/></button></div>{refundable.length===0?<div className="empty">Nothing left to refund.</div>:<SalesTable sales={refundable} onView={setViewing} onRefund={startRefund}/>}</div><div className="panel table-panel"><div className="toolbar"><strong>{refunds.length} refunds</strong></div>{refunds.length===0?<div className="empty">No refunds yet.</div>:<DataTable headers={["INVOICE","CUSTOMER","DATE","REFUNDED","REASON","STATUS"]} rows={refunds.map(s=>[s.id,s.customer,s.date,money(subtotal(s)),s.refundReason||"—","Refunded"])}/>}</div></>}
   {tab==="receipts" && <div className="receipts-grid">{sales.map(s=><div className="panel receipt-card" key={s.id}><div className="receipt-card-head"><strong>{s.id}</strong><span className={`status ${statusClass(s.status)}`}>{s.status}</span></div><p>{s.customer} · {s.date}</p><div className="receipt-card-total"><span>{itemCount(s)} items</span><strong>{money(subtotal(s))}</strong></div><button className="outline-button" onClick={()=>setViewing(s)}>View receipt</button></div>)}</div>}
   {viewing && <ReceiptModal sale={viewing} onClose={()=>setViewing(null)} onRefund={startRefund} storeName={storeName} storeLocation={storeLocation} receiptFooter={receiptFooter} currency={currency}/>}
+  {paying && <PaymentModal total={total} itemCount={cart.reduce((n,l)=>n+l.qty,0)} currency={currency} busy={busy} onClose={()=>setPaying(false)} onConfirm={doCheckout}/>}
   {refunding && <div className="modal-backdrop" onClick={()=>setRefunding(null)}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>Refund {refunding.id}</h2><button aria-label="Close refund dialog" onClick={()=>setRefunding(null)}><X size={18}/></button></div><p className="refund-summary">Refunding <strong>{money(subtotal(refunding))}</strong> ({itemCount(refunding)} items) from <strong>{refunding.customer}</strong> back via {refunding.payment}.</p><label>Reason<textarea autoFocus placeholder="e.g. Damaged goods, customer changed their mind" value={refundNote} onChange={e=>setRefundNote(e.target.value)}/></label><div className="modal-actions"><button className="outline-button" onClick={()=>setRefunding(null)}>Cancel</button><button className="primary-button" disabled={busy} onClick={confirmRefund}>{busy ? "Refunding…" : `Confirm refund ${money(subtotal(refunding))}`}</button></div></div></div>}</>;
 }
 
 function SalesTable({ sales, onView, onRefund }: { sales: Sale[]; onView: (s: Sale) => void; onRefund: (s: Sale) => void }) {
   return <div className="table-wrap"><table><thead><tr>{["INVOICE","CUSTOMER","DATE","PAYMENT","AMOUNT","STATUS",""].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{sales.map(s=><tr key={s.id}><td><strong>{s.id}</strong></td><td>{s.customer}</td><td>{s.date}</td><td>{s.payment}</td><td>{money(subtotal(s))}</td><td><span className={`status ${statusClass(s.status)}`}>{s.status}</span></td><td><div className="row-actions"><button className="text-button" onClick={()=>onView(s)}>Receipt</button>{s.status!=="Refunded"&&<button className="text-button danger" onClick={()=>onRefund(s)}>Refund</button>}</div></td></tr>)}</tbody></table></div>;
+}
+
+/** Checkout confirmation: payment method, customer, cash handling — then record. */
+function PaymentModal({ total, itemCount, currency, busy, onClose, onConfirm }: { total: number; itemCount: number; currency: string; busy: boolean; onClose: () => void; onConfirm: (p: SalePayment) => void }) {
+  const METHODS = ["Cash", "ABA Pay", "Credit"] as const;
+  const [customer, setCustomer] = useState("");
+  const [method, setMethod] = useState<string>("Cash");
+  const [cash, setCash] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const cur = (n: number) => `${currency}${n.toFixed(2)}`;
+  const paidNum = method === "Cash" && cash.trim() !== "" ? Number(cash) : undefined;
+  const invalidCash = method === "Cash" && cash.trim() !== "" && (!Number.isFinite(paidNum) || (paidNum as number) < 0);
+  const change = paidNum !== undefined && Number.isFinite(paidNum) ? Math.max(0, paidNum - total) : undefined;
+  const short = paidNum !== undefined && Number.isFinite(paidNum) && paidNum + 0.005 < total;
+  const confirm = () => {
+    if (invalidCash) return setError("Cash received must be a non-negative number.");
+    if (short) return setError(`Cash received is less than the total (${cur(total)}).`);
+    setError(null);
+    onConfirm({ customer: customer.trim(), payment: method, ...(method === "Cash" && cash.trim() !== "" && Number.isFinite(paidNum) ? { amountPaid: paidNum } : {}) });
+  };
+  return <div className="modal-backdrop" onClick={busy ? undefined : onClose}><div className="modal payment-modal" onClick={e=>e.stopPropagation()}>
+    <div className="modal-header"><h2>Confirm payment</h2>{!busy&&<button aria-label="Close payment dialog" onClick={onClose}><X size={18}/></button>}</div>
+    <p className="refund-summary">{itemCount} item{itemCount===1?"":"s"} · total <strong>{cur(total)}</strong></p>
+    <div className="pay-methods" role="radiogroup" aria-label="Payment method">{METHODS.map(m => <button key={m} role="radio" aria-checked={method===m} className={`pay-method ${method===m?"on":""}`} onClick={()=>{setMethod(m);setError(null);}}>{m}</button>)}</div>
+    <label>Customer name<input placeholder="Walk-in customer" value={customer} disabled={busy} onChange={e=>{setCustomer(e.target.value);setError(null);}}/></label>
+    {method==="Cash"&&<>
+      <label>Cash received<input autoFocus inputMode="decimal" placeholder={cur(total)} value={cash} disabled={busy} onChange={e=>{setCash(e.target.value.replace(/[^\d.]/g,""));setError(null);}}/></label>
+      {paidNum!==undefined&&Number.isFinite(paidNum)&&<div className="pay-change"><span>Change due</span><strong className={short?"short":""}>{short?`Short ${cur(total-paidNum)}`:cur(change as number)}</strong></div>}
+    </>}
+    {method==="Credit"&&<p className="form-intro">Credit sales are recorded as Pending until payment is collected.</p>}
+    {error&&<p className="field-error" role="alert">{error}</p>}
+    <div className="modal-actions"><button className="outline-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy||invalidCash} onClick={confirm}>{busy?"Charging…":`Confirm ${cur(total)}`}</button></div>
+  </div></div>;
 }
 
 function ReceiptModal({ sale, onClose, onRefund, storeName, storeLocation, receiptFooter, currency }: { sale: Sale; onClose: () => void; onRefund: (s: Sale) => void; storeName: string; storeLocation: string; receiptFooter: string; currency: string }) {
@@ -536,7 +588,7 @@ function ReceiptModal({ sale, onClose, onRefund, storeName, storeLocation, recei
     return () => { document.body.classList.remove("print-receipt"); };
   }, []);
   const cur = (n: number) => `${currency}${n.toFixed(2)}`;
-  return <div className="modal-backdrop" onClick={onClose}><div className="modal receipt-modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>Receipt {sale.id}</h2><button aria-label="Close receipt" onClick={onClose}><X size={18}/></button></div><p className="receipt-store"><strong>{storeName}</strong>{storeLocation&&` · ${storeLocation}`}</p><p className="receipt-meta">{sale.customer} · {sale.date} · Paid by {sale.payment}{sale.servedBy ? ` · Served by ${sale.servedBy}` : ""}</p><div className="receipt-lines">{sale.lines.map(l=><div className="receipt-line" key={l.sku}><span>{l.name} <em>× {l.qty}</em></span><strong>{cur(l.price*l.qty)}</strong></div>)}</div><div className="receipt-total"><span>Total</span><strong>{cur(subtotal(sale))}</strong></div><p className="receipt-status">Status: <span className={`status ${statusClass(sale.status)}`}>{sale.status}</span>{sale.status==="Refunded"&&<em> · {sale.refundReason}</em>}</p>{receiptFooter&&<p className="receipt-footer">{receiptFooter}</p>}<div className="modal-actions"><button className="outline-button" onClick={()=>window.print()}><Printer size={15}/>Print</button><button className="outline-button" onClick={onClose}>Close</button>{sale.status!=="Refunded"&&<button className="primary-button" onClick={()=>onRefund(sale)}>Process refund</button>}</div></div></div>;
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal receipt-modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>Receipt {sale.id}</h2><button aria-label="Close receipt" onClick={onClose}><X size={18}/></button></div><p className="receipt-store"><strong>{storeName}</strong>{storeLocation&&` · ${storeLocation}`}</p><p className="receipt-meta">{sale.customer} · {sale.date} · Paid by {sale.payment}{sale.servedBy ? ` · Served by ${sale.servedBy}` : ""}</p><div className="receipt-lines">{sale.lines.map(l=><div className="receipt-line" key={l.sku}><span>{l.name} <em>× {l.qty}</em></span><strong>{cur(l.price*l.qty)}</strong></div>)}</div><div className="receipt-total"><span>Total</span><strong>{cur(subtotal(sale))}</strong></div>{sale.amountPaid!==undefined&&<div className="receipt-payline"><span>Paid by {sale.payment}</span><strong>{cur(sale.amountPaid)}</strong></div>}{sale.changeDue!==undefined&&sale.changeDue>0&&<div className="receipt-payline change"><span>Change due</span><strong>{cur(sale.changeDue)}</strong></div>}<p className="receipt-status">Status: <span className={`status ${statusClass(sale.status)}`}>{sale.status}</span>{sale.status==="Refunded"&&<em> · {sale.refundReason}</em>}</p>{receiptFooter&&<p className="receipt-footer">{receiptFooter}</p>}<div className="modal-actions"><button className="outline-button" onClick={()=>window.print()}><Printer size={15}/>Print</button><button className="outline-button" onClick={onClose}>Close</button>{sale.status!=="Refunded"&&<button className="primary-button" onClick={()=>onRefund(sale)}>Process refund</button>}</div></div></div>;
 }
 
 const ROLES = ["Administrator", "Manager", "Cashier"] as const;

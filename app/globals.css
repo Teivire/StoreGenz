@@ -42,3 +42,21 @@
 .profile-facts>div{display:flex;justify-content:space-between;gap:10px}
 .profile-facts dt{color:var(--muted);font-size:11px;white-space:nowrap}
 .profile-facts dd{margin:0;color:var(--ink);font-size:11px;font-weight:700;text-align:right}
+
+/* Payment confirmation modal + receipt paid/change lines */
+.payment-modal{width:min(420px,100%)}
+.pay-methods{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0 4px}
+.pay-method{padding:10px 8px;background:#fbfdfc;border:1px solid var(--line);border-radius:8px;font-size:12px;font-weight:700;color:#566575}
+.pay-method:hover{border-color:#b9dcc9}
+.pay-method.on{color:#168957;background:var(--pale);border-color:var(--green)}
+.payment-modal label{display:block;margin:14px 0;color:#566575;font-size:11px;font-weight:700}
+.payment-modal input{display:block;width:100%;margin-top:7px;padding:10px;border:1px solid var(--line);border-radius:6px;outline:none;font-size:13px}
+.payment-modal input:focus{border-color:#b9dcc9}
+.pay-change{display:flex;justify-content:space-between;align-items:center;margin:10px 0 0;padding:11px 12px;background:#f7faf9;border:1px solid #e7f0eb;border-radius:8px}
+.pay-change span{color:var(--muted);font-size:11px}
+.pay-change strong{font-size:15px}
+.pay-change strong.short{color:#c0473a}
+.form-intro{margin:10px 0 0;color:var(--muted);font-size:11px}
+.receipt-payline{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid #f0f2f4;font-size:11px;color:#334252}
+.receipt-payline span{color:var(--muted)}
+.receipt-payline.change strong{color:#168957}

@@ -26,6 +26,7 @@ const BASE = process.env.BASE_URL || "http://localhost:3000";
 const H = { "Content-Type": "application/json", "X-Staff-Name": "Sokha P.", "X-Staff-Pin": "1111" };
 const H_CASHIER = { "Content-Type": "application/json", "X-Staff-Name": "Mony S.", "X-Staff-Pin": "3333" };
 const SKU = "SKU-CONTRACT";
+const PAY_SKU = "SKU-CONTRACT-PAY";
 
 let failures = 0;
 const req = (path, method, headers, body) =>
@@ -52,16 +53,23 @@ const CASES = [
   ["sale rejects fractional qty", "/api/sales", "POST", H, { lines: [{ sku: SKU, qty: 1.5 }] }, 400],
   ["sale rejects non-numeric qty", "/api/sales", "POST", H, { lines: [{ sku: SKU, qty: "x" }] }, 400],
   ["sale rejects unknown SKU", "/api/sales", "POST", H, { lines: [{ sku: "SKU-NOPE", qty: 1 }] }, 404],
+  // payment form fields (own scratch product so the boundary block below starts pristine)
+  ["sale defaults customer/payment when omitted", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }] }, 201, b => b.customer === "Walk-in customer" && b.payment === "Cash"],
+  ["sale rejects unknown payment method", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }], payment: "Bitcoin" }, 400],
+  ["sale rejects cash short of total", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }], payment: "Cash", amountPaid: 0.5 }, 400],
+  ["sale computes change server-side", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }], customer: "Contract Buyer", payment: "Cash", amountPaid: 5 }, 201, b => b.amountPaid === 5 && b.changeDue === 4 && b.customer === "Contract Buyer"],
+  ["non-cash sale rejects amountPaid", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }], payment: "ABA Pay", amountPaid: 99 }, 400],
+  ["sale rejects negative amountPaid", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }], payment: "Cash", amountPaid: -1 }, 400],
   // auth on mutations
   ["sale without auth is rejected", "/api/sales", "POST", { "Content-Type": "application/json" }, { lines: [{ sku: SKU, qty: 1 }] }, 401],
   ["cashier cannot add products", "/api/products", "POST", H_CASHIER, { name: "Nope", sku: "SKU-NOPE2", category: "T", price: 1, stock: 1 }, 403],
   // stock boundary: exact stock sells, one more is rejected atomically
   ["sale at exact stock succeeds", "/api/sales", "POST", H, { lines: [{ sku: SKU, qty: 5 }] }, 201],
   ["sale one over stock is rejected", "/api/sales", "POST", H, { lines: [{ sku: SKU, qty: 1 }] }, 409],
-  // refund lifecycle
-  ["refund of paid sale succeeds", "/api/sales/@id0", "PATCH", H, { reason: "contract" }, 200],
-  ["second refund is a conflict", "/api/sales/@id0", "PATCH", H, { reason: "again" }, 409],
-  ["refund without auth is rejected", "/api/sales/@id0", "PATCH", { "Content-Type": "application/json" }, { reason: "nope" }, 401],
+  // refund lifecycle (the @last sale above is the one refunded)
+  ["refund of paid sale succeeds", "/api/sales/@last", "PATCH", H, { reason: "contract" }, 200],
+  ["second refund is a conflict", "/api/sales/@last", "PATCH", H, { reason: "again" }, 409],
+  ["refund without auth is rejected", "/api/sales/@last", "PATCH", { "Content-Type": "application/json" }, { reason: "nope" }, 401],
 ];
 
 /** Cookie-session block: runs before the header-table (POST also arms the cookie). */
@@ -97,13 +105,17 @@ async function runSessionBlock() {
 async function main() {
   await runSessionBlock();
 
-  // setup: scratch product with stock 5, sold through the boundary cases
+  // setup: scratch product with stock 5, sold through the boundary cases;
+  // a second product with stock 10 hosts the payment-form cases
   const made = await req("/api/products", "POST", H, { name: "Contract Widget", sku: SKU, category: "Test", price: 1, stock: 5 });
   if (!made.ok) throw new Error(`setup failed: ${await made.text()}`);
+  const madePay = await req("/api/products", "POST", H, { name: "Contract Pay Widget", sku: PAY_SKU, category: "Test", price: 1, stock: 10 });
+  if (!madePay.ok) throw new Error(`setup (pay product) failed: ${await madePay.text()}`);
   const idByIndex = [];
 
   for (const [name, path, method, headers, body, expectStatus, expectBody] of CASES) {
-    const resolved = path.replace("@id0", encodeURIComponent(idByIndex[0] ?? "UNKNOWN"));
+    const lastSale = idByIndex[idByIndex.length - 1];
+    const resolved = path.replace("@last", encodeURIComponent(lastSale ?? "UNKNOWN"));
     const res = await req(resolved, method, headers, body);
     const data = await res.json().catch(() => ({}));
     const statusOk = res.status === expectStatus;
@@ -125,11 +137,12 @@ async function main() {
   console.log(`${stockOk ? "✓" : "✗"} boundary sequence nets out exactly — stock=${p?.stock} (want 5: −5 sold, over-sale rejected, +5 refunded)`);
   if (!stockOk) failures++;
 
-  // cleanup: scratch product + every sale that touched it
+  // cleanup: scratch products + every sale that touched either
   await req(`/api/products/${SKU}`, "DELETE", H);
+  await req(`/api/products/${PAY_SKU}`, "DELETE", H);
   const c2 = new MongoClient(process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/storegenz");
   await c2.connect();
-  const removed = await c2.db().collection("sales").deleteMany({ "lines.sku": SKU });
+  const removed = await c2.db().collection("sales").deleteMany({ "lines.sku": { $in: [SKU, PAY_SKU] } });
   await c2.close();
   console.log(`cleanup: scratch product + ${removed.deletedCount} sale(s) removed`);
 

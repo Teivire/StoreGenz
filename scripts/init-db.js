@@ -74,6 +74,8 @@ const validators = {
         payment: { bsonType: "string" },
         status: { enum: ["Paid", "Pending", "Refunded"] },
         refundReason: { bsonType: "string" },
+        amountPaid: { bsonType: "number", minimum: 0 },
+        changeDue: { bsonType: "number", minimum: 0 },
         lines: {
           bsonType: "array",
           minItems: 1,

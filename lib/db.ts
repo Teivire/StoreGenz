@@ -19,6 +19,9 @@ export type Sale = {
   lines: SaleLine[];
   refundReason?: string;
   servedBy?: string;
+  /** Cash handling: amount the customer handed over and the change owed (server-computed). */
+  amountPaid?: number;
+  changeDue?: number;
 };
 export type StoredProduct = Product & { _id: string };
 export type StoredSale = Sale & { _id: string; createdAt: Date };

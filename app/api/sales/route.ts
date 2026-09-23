@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { backfillCreatedAt, ensureSeeded, getProductsCollection, getSalesCollection, requireStaff, type SaleLine, type SaleStatus } from "@/lib/db";
+import { backfillCreatedAt, ensureSeeded, getProductsCollection, getSalesCollection, requireStaff, type Sale, type SaleLine, type SaleStatus } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -18,15 +18,22 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     await ensureSeeded();
-    const body = await request.json() as { lines?: Partial<SaleLine>[] };
+    const body = await request.json() as { lines?: Partial<SaleLine>[]; customer?: string; payment?: string; amountPaid?: number };
     const rawLines = Array.isArray(body.lines) ? body.lines : [];
     if (rawLines.length === 0) return bad("A sale needs at least one line item.");
+
+    const customer = String(body.customer ?? "").trim() || "Walk-in customer";
+    if (customer.length > 80) return bad("Customer name is too long (max 80 characters).");
+    const payment = String(body.payment ?? "Cash").trim();
+    if (!/^(Cash|ABA Pay|Credit)$/.test(payment)) return bad("Payment must be Cash, ABA Pay, or Credit.");
+    const amountPaid = body.amountPaid === undefined ? undefined : Number(body.amountPaid);
+    if (amountPaid !== undefined && (!Number.isFinite(amountPaid) || amountPaid < 0)) return bad("Amount paid must be a non-negative number.");
 
     const products = await getProductsCollection();
     const sales = await getSalesCollection();
     const newest = await sales.find().sort({ _id: -1 }).limit(1).toArray();
     const nextNum = newest.length ? parseInt(newest[0].id.slice(5), 10) + 1 : 1049;
-    const sale = { id: `#INV-${nextNum}`, customer: "Walk-in customer", date: "Just now", payment: "Cash", status: "Paid" as SaleStatus, lines: [] as SaleLine[], createdAt: new Date(), servedBy: await requireStaff(request, "Cashier") };
+    const sale: Sale & { createdAt: Date } = { id: `#INV-${nextNum}`, customer, date: "Just now", payment, status: "Paid", lines: [], createdAt: new Date(), servedBy: await requireStaff(request, "Cashier") };
 
     // Resolve prices server-side from the catalog, then atomically decrement stock.
     // $gte: qty makes the decrement fail for any line that oversells; the bulkWrite
@@ -38,6 +45,17 @@ export async function POST(request: Request) {
       const product = await products.findOne({ _id: sku });
       if (!product) return bad(`Unknown product ${sku}.`, 404);
       sale.lines.push({ name: product.name, sku: product.sku, price: product.price, qty });
+    }
+
+    // Change is computed here, from the same resolved prices the total comes from —
+    // the client's arithmetic is never trusted for money. Cash handling applies to
+    // Cash only: card/credit tenders are always exact.
+    const saleTotal = sale.lines.reduce((sum, l) => sum + l.price * l.qty, 0);
+    if (payment === "Cash" && amountPaid !== undefined && amountPaid + 0.005 < saleTotal) return bad(`Amount paid is less than the total (${saleTotal.toFixed(2)}).`);
+    if (payment !== "Cash" && amountPaid !== undefined) return bad("Amount paid only applies to Cash payments.");
+    if (amountPaid !== undefined) {
+      sale.amountPaid = Math.round(amountPaid * 100) / 100;
+      sale.changeDue = Math.max(0, Math.round((amountPaid - saleTotal) * 100) / 100);
     }
 
     const decrements = sale.lines.map(l => ({
