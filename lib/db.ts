@@ -8,6 +8,8 @@ export type StaffMember = { name: string; role: StaffRole; permissions: string; 
 export type StoredStaff = StaffMember & { _id: string; pin: string };
 /** What the UI may see after login — never includes the PIN. */
 export type PublicStaff = { name: string; role: StaffRole; permissions: string; status: "Active" | "Inactive" };
+/** Public profile plus the server-side sign-in time of the active session. */
+export type SessionProfile = PublicStaff & { signedInAt: Date };
 export type Sale = {
   id: string;
   customer: string;
@@ -101,14 +103,14 @@ export async function checkCredentials(name: string, pin: string): Promise<{ ok:
 }
 
 /** Resolves the request's cookie session to the signed-in profile, or null. */
-export async function readSession(request: Request): Promise<PublicStaff | null> {
+export async function readSession(request: Request): Promise<SessionProfile | null> {
   const token = readSessionToken(request);
   if (!token) return null;
   const session = await getSessionsCollection().then(c => c.findOne({ _id: token }));
   if (!session || session.expiresAt.getTime() <= Date.now()) return null;
   const doc = await getStaffCollection().then(c => c.findOne({ _id: session.staffId }));
   if (!doc || doc.status !== "Active") return null;
-  return { name: doc.name, role: doc.role, permissions: doc.permissions, status: doc.status };
+  return { name: doc.name, role: doc.role, permissions: doc.permissions, status: doc.status, signedInAt: session.createdAt };
 }
 
 /** Deletes the request's session (logout) if it has one. */

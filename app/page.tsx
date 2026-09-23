@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ArrowDownRight, ArrowUpRight, Bell, Box, BriefcaseBusiness, Building2, ChevronDown,
+  ArrowDownRight, ArrowUpRight, Bell, Box, BriefcaseBusiness, Building2, ChevronDown, ChevronUp,
   CircleDollarSign, ClipboardList, CreditCard, FileBarChart, LayoutDashboard, LogOut, Menu,
   Package, Plus, Printer, Search, Settings, ShoppingCart, Store, Tag, Truck, Users, X
 } from "lucide-react";
@@ -88,6 +88,8 @@ export default function Home() {
   const [dbOnline, setDbOnline] = useState<boolean | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [signedInAt, setSignedInAt] = useState<Date | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const mountedRef = useRef(true);
   // React 18 StrictMode (dev) runs setup → cleanup → setup: the flag must be re-armed
@@ -122,12 +124,18 @@ export default function Home() {
   useEffect(() => {
     fetch("/api/auth/session", { credentials: "same-origin" })
       .then(res => (res.ok ? res.json() : null))
-      .then((data: Session | null) => { if (mountedRef.current && data) setSession({ name: data.name, role: data.role }); })
+      // Cookie-restored session: whoami returns the server-side sign-in time.
+      .then((data: (Session & { signedInAt?: string }) | null) => {
+        if (!mountedRef.current || !data) return;
+        setSession({ name: data.name, role: data.role });
+        if (data.signedInAt) setSignedInAt(new Date(data.signedInAt));
+      })
       .catch(() => {});
   }, []);
 
   const navigate = (label: string) => { setActive(label); setSidebarOpen(false); setQuery(""); };
   const info = pageInfo[active];
+  const me = staff.find(m => m.name === session?.name);
 
   // Mutating requests authenticate via the HttpOnly session cookie; the API enforces
   // the role rules server-side.
@@ -265,7 +273,7 @@ export default function Home() {
   };
 
   // Not signed in yet → the login gate is the whole app.
-  if (!session) {    return <LoginScreen onLogin={(name, role) => setSession({ name, role })} settings={settings}/>; 
+  if (!session) {    return <LoginScreen onLogin={(name, role) => { setSignedInAt(new Date()); setSession({ name, role }); }} settings={settings}/>; 
   }
 
   return <main className="app-shell">
@@ -274,7 +282,7 @@ export default function Home() {
       <div className="brand"><div className="brand-mark">{settings.name.charAt(0).toUpperCase()}</div><div><strong>{settings.name}</strong><span>POS SYSTEM</span></div><button className="mobile-close" onClick={() => setSidebarOpen(false)}><X size={19}/></button></div>
       <button className="store-switcher"><div className="store-icon"><Store size={17}/></div><div><span>{settings.name}</span><small>{settings.location}</small></div><ChevronDown size={15}/></button>
       <nav className="nav-list">{navGroups.map(group => <div key={group.title}><p className="nav-label">{group.title}</p>{group.items.map(([label, Icon]) => <button key={label} onClick={() => navigate(label)} className={`nav-item ${active === label ? "nav-active" : ""}`}><Icon size={18}/><span>{label}</span></button>)}</div>)}</nav>
-      <div className="sidebar-footer"><div className="help-card"><div className="help-icon">?</div><div><strong>Need help?</strong><span>View documentation</span></div></div><div className="profile"><div className="avatar">{session.name.slice(0, 2).toUpperCase()}</div><div><strong>{session.name}</strong><span>{session.role}</span></div><button className="logout-button" aria-label="Sign out" title={`Sign out ${session.name}`} onClick={() => { setSession(null); fetch("/api/auth/session", { method: "DELETE", credentials: "same-origin" }).catch(() => {}); navigate("Dashboard"); }}><LogOut size={15}/></button></div></div>
+      <div className="sidebar-footer"><div className="help-card"><div className="help-icon">?</div><div><strong>Need help?</strong><span>View documentation</span></div></div><div className="profile-wrap"><div className="profile" role="button" tabIndex={0} aria-label={`View profile for ${session.name}`} onClick={() => setProfileOpen(o => !o)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setProfileOpen(o => !o); } }}><div className="avatar">{session.name.slice(0, 2).toUpperCase()}</div><div><strong>{session.name}</strong><span>{session.role}</span></div><ChevronUp size={14} className={`profile-chevron ${profileOpen ? "open" : ""}`}/></div>{profileOpen && <><button className="menu-backdrop" aria-label="Close profile" onClick={() => setProfileOpen(false)}/><div className="profile-popover" role="dialog" aria-label="Signed-in profile"><div className="profile-popover-head"><div className="avatar">{session.name.slice(0, 2).toUpperCase()}</div><div><strong>{session.name}</strong><span>{session.role}</span></div></div><dl className="profile-facts"><div><dt>Permissions</dt><dd>{me?.permissions ?? "—"}</dd></div><div><dt>Status</dt><dd>{me?.status ?? "Active"}</dd></div><div><dt>Signed in</dt><dd>{signedInAt ? signedInAt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—"}</dd></div></dl></div></>}</div><button className="logout-button" aria-label="Sign out" title={`Sign out ${session.name}`} onClick={() => { setSession(null); setProfileOpen(false); fetch("/api/auth/session", { method: "DELETE", credentials: "same-origin" }).catch(() => {}); navigate("Dashboard"); }}><LogOut size={15}/></button></div>
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search anything..."/></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
@@ -579,7 +587,7 @@ function LoginScreen({ onLogin, settings }: { onLogin: (name: string, role: Staf
     setBusy(true); setError(null);
     try {
       const res = await fetch("/api/auth/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), pin: pin.trim() }), credentials: "same-origin" });
-      const data = await res.json() as { name?: string; role?: StaffRole; error?: string };
+      const data = await res.json() as { name?: string; role?: StaffRole; signedInAt?: string; error?: string };
       if (!res.ok || !data.name || !data.role) { setError(data.error ?? "Sign-in failed."); return; }
       onLogin(data.name, data.role);
     } catch {

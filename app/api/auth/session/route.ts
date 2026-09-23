@@ -25,12 +25,17 @@ export async function POST(request: Request) {
   }
 }
 
-/** Whoami: resolves the session cookie back to the signed-in profile. */
+/** Whoami: resolves the session cookie back to the signed-in profile + sign-in time. */
 export async function GET(request: Request) {
   try {
     const profile = await readSession(request);
     if (!profile) return bad("Not signed in.", 401);
-    return NextResponse.json(profile);
+    return NextResponse.json({
+      name: profile.name,
+      role: profile.role,
+      permissions: profile.permissions,
+      signedInAt: profile.signedInAt,
+    });
   } catch (e) {
     return bad(String(e), 503);
   }

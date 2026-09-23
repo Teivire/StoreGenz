@@ -27,3 +27,18 @@
 .image-placeholder { display: grid; place-items: center; width: 64px; height: 64px; color: #5a9a7b; background: #edf8f2; border-radius: 10px; }
 .image-actions { display: flex; gap: 8px; }
 .image-label { cursor: pointer; }
+
+/* Sidebar profile popover */
+.profile-wrap{position:relative}
+.profile{cursor:pointer;user-select:none;border-radius:8px 8px 0 0;padding-right:4px}
+.profile:hover .profile-chevron{color:#566575}
+.profile-chevron{color:#98a3ad;flex-shrink:0;transition:transform .15s}
+.profile-chevron.open{transform:rotate(180deg)}
+.profile-popover{position:absolute;bottom:calc(100% + 10px);left:0;right:0;z-index:6;padding:14px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 34px #17212b26}
+.profile-popover-head{display:flex;align-items:center;gap:10px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.profile-popover-head strong{display:block;font-size:12px}
+.profile-popover-head span{display:block;margin-top:2px;color:var(--muted);font-size:10px}
+.profile-facts{margin:12px 0 0;display:flex;flex-direction:column;gap:9px}
+.profile-facts>div{display:flex;justify-content:space-between;gap:10px}
+.profile-facts dt{color:var(--muted);font-size:11px;white-space:nowrap}
+.profile-facts dd{margin:0;color:var(--ink);font-size:11px;font-weight:700;text-align:right}
