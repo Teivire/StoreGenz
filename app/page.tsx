@@ -628,15 +628,15 @@ function Reports({ sales, catalog }: { sales: Sale[]; catalog: Product[] }) {
   // Daily buckets for day ranges; monthly buckets when viewing all time.
   const dated = counted.filter(s => Number.isFinite(tsOf(s)));
   const undated = counted.length - dated.length;
-  const buckets = new Map<string, { label: string; revenue: number; orders: number; sort: number }>();
+  const buckets = new Map<string, { label: string; revenue: number; sort: number }>();
   for (const s of dated) {
     const d = new Date(tsOf(s));
     const key = range === "all" ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` : d.toDateString();
     const label = range === "all"
       ? d.toLocaleDateString("en-US", { month: "short", year: "2-digit" })
       : range === 7 ? d.toLocaleDateString("en-US", { weekday: "short" }) : String(d.getDate());
-    const row = buckets.get(key) ?? { label, revenue: 0, orders: 0, sort: tsOf(s) };
-    row.revenue += subtotal(s); row.orders += 1;
+    const row = buckets.get(key) ?? { label, revenue: 0, sort: tsOf(s) };
+    row.revenue += subtotal(s);
     buckets.set(key, row);
   }
   // Fill the empty days so the chart shows honest gaps.
@@ -644,13 +644,12 @@ function Reports({ sales, catalog }: { sales: Sale[]; catalog: Product[] }) {
     for (let i = 0; i < range; i++) {
       const d = new Date(todayStart.getTime() - (range - 1 - i) * DAY);
       const key = d.toDateString();
-      if (!buckets.has(key)) buckets.set(key, { label: range === 7 ? d.toLocaleDateString("en-US", { weekday: "short" }) : String(d.getDate()), revenue: 0, orders: 0, sort: d.getTime() });
+      if (!buckets.has(key)) buckets.set(key, { label: range === 7 ? d.toLocaleDateString("en-US", { weekday: "short" }) : String(d.getDate()), revenue: 0, sort: d.getTime() });
     }
   }
   const week = Array.from(buckets.values()).sort((a, b) => a.sort - b.sort);
   const labelEvery = week.length > 16 ? 5 : 1;
   const maxRevenue = Math.max(...week.map(d => d.revenue), 1);
-  const maxOrders = Math.max(...week.map(d => d.orders), 1);
 
   const byProduct = new Map<string, { name: string; sku: string; qty: number; revenue: number }>();
   for (const s of counted) for (const l of s.lines) {

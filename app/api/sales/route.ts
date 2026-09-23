@@ -75,7 +75,6 @@ export async function POST(request: Request) {
         sale.id = `#INV-${next2}`;
       }
     }
-    return bad("Could not record the sale — please try again.", 503);
   } catch (e) {
     const status = (e as { status?: number }).status;
     if (status === 401 || status === 403) return bad((e as Error).message, status);
