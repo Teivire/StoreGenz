@@ -118,19 +118,20 @@ export default function Home() {
 
   useEffect(() => { refreshAll(); }, []);
 
+  // Restore a cookie session on load so a refresh doesn't sign the user out.
+  useEffect(() => {
+    fetch("/api/auth/session", { credentials: "same-origin" })
+      .then(res => (res.ok ? res.json() : null))
+      .then((data: Session | null) => { if (mountedRef.current && data) setSession({ name: data.name, role: data.role }); })
+      .catch(() => {});
+  }, []);
+
   const navigate = (label: string) => { setActive(label); setSidebarOpen(false); setQuery(""); };
   const info = pageInfo[active];
 
-  // Mutating requests carry the signed-in staff identity; the API enforces the role rules.
-  // The PIN lives in a module-global (never rendered) and is attached to every mutation.
-  const authFetch = (path: string, init: RequestInit = {}) => {
-    const headers = new Headers(init.headers);
-    if (session) {
-      headers.set("X-Staff-Name", session.name);
-      headers.set("X-Staff-Pin", String((window as { __staffPin?: string }).__staffPin ?? ""));
-    }
-    return fetch(path, { ...init, headers });
-  };
+  // Mutating requests authenticate via the HttpOnly session cookie; the API enforces
+  // the role rules server-side.
+  const authFetch = (path: string, init: RequestInit = {}) => fetch(path, { ...init, credentials: "same-origin" });
 
   const updateSettings = (s: StoreSettings, done?: (ok: boolean) => void) => {
     const prev = settings;
@@ -264,7 +265,7 @@ export default function Home() {
   };
 
   // Not signed in yet → the login gate is the whole app.
-  if (!session) {    return <LoginScreen onLogin={(name, role, pin) => { (window as { __staffPin?: string }).__staffPin = pin; setSession({ name, role }); }} settings={settings}/>; 
+  if (!session) {    return <LoginScreen onLogin={(name, role) => setSession({ name, role })} settings={settings}/>; 
   }
 
   return <main className="app-shell">
@@ -273,7 +274,7 @@ export default function Home() {
       <div className="brand"><div className="brand-mark">{settings.name.charAt(0).toUpperCase()}</div><div><strong>{settings.name}</strong><span>POS SYSTEM</span></div><button className="mobile-close" onClick={() => setSidebarOpen(false)}><X size={19}/></button></div>
       <button className="store-switcher"><div className="store-icon"><Store size={17}/></div><div><span>{settings.name}</span><small>{settings.location}</small></div><ChevronDown size={15}/></button>
       <nav className="nav-list">{navGroups.map(group => <div key={group.title}><p className="nav-label">{group.title}</p>{group.items.map(([label, Icon]) => <button key={label} onClick={() => navigate(label)} className={`nav-item ${active === label ? "nav-active" : ""}`}><Icon size={18}/><span>{label}</span></button>)}</div>)}</nav>
-      <div className="sidebar-footer"><div className="help-card"><div className="help-icon">?</div><div><strong>Need help?</strong><span>View documentation</span></div></div><div className="profile"><div className="avatar">{session.name.slice(0, 2).toUpperCase()}</div><div><strong>{session.name}</strong><span>{session.role}</span></div><button className="logout-button" aria-label="Sign out" title={`Sign out ${session.name}`} onClick={() => { setSession(null); (window as { __staffPin?: string }).__staffPin = undefined; navigate("Dashboard"); }}><LogOut size={15}/></button></div></div>
+      <div className="sidebar-footer"><div className="help-card"><div className="help-icon">?</div><div><strong>Need help?</strong><span>View documentation</span></div></div><div className="profile"><div className="avatar">{session.name.slice(0, 2).toUpperCase()}</div><div><strong>{session.name}</strong><span>{session.role}</span></div><button className="logout-button" aria-label="Sign out" title={`Sign out ${session.name}`} onClick={() => { setSession(null); fetch("/api/auth/session", { method: "DELETE", credentials: "same-origin" }).catch(() => {}); navigate("Dashboard"); }}><LogOut size={15}/></button></div></div>
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search anything..."/></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
@@ -568,7 +569,7 @@ function StaffFormModal({ initial, onClose, onSave }: { initial?: StaffMember; o
   return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>{initial ? "Edit staff member" : "Add staff"}</h2><button aria-label="Close staff form" onClick={onClose}><X size={18}/></button></div><div className="form-grid"><label>Name<input autoFocus placeholder="e.g. Chan L." value={form.name} onChange={set("name")}/></label><label>Login PIN (4–6 digits)<input type="password" inputMode="numeric" maxLength={6} placeholder={initial ? "Leave blank to keep current PIN" : "e.g. 4321"} value={form.pin} onChange={set("pin")}/></label><label>Role<select value={form.role} onChange={set("role")}>{ROLES.map(r=><option key={r} value={r}>{r}</option>)}</select></label><label>Permissions<select value={form.permissions} onChange={set("permissions")}>{PERMS.map(p=><option key={p} value={p}>{p}</option>)}</select></label></div>{error && <p className="field-error" role="alert">{error}</p>}<div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={submit}>{initial ? "Save changes" : "Add staff member"}</button></div></div></div>;
 }
 
-function LoginScreen({ onLogin, settings }: { onLogin: (name: string, role: StaffRole, pin: string) => void; settings: StoreSettings }) {
+function LoginScreen({ onLogin, settings }: { onLogin: (name: string, role: StaffRole) => void; settings: StoreSettings }) {
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -577,10 +578,10 @@ function LoginScreen({ onLogin, settings }: { onLogin: (name: string, role: Staf
     if (!name.trim() || !pin.trim()) return setError("Enter your name and PIN.");
     setBusy(true); setError(null);
     try {
-      const res = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), pin: pin.trim() }) });
+      const res = await fetch("/api/auth/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), pin: pin.trim() }), credentials: "same-origin" });
       const data = await res.json() as { name?: string; role?: StaffRole; error?: string };
       if (!res.ok || !data.name || !data.role) { setError(data.error ?? "Sign-in failed."); return; }
-      onLogin(data.name, data.role, pin.trim());
+      onLogin(data.name, data.role);
     } catch {
       setError("Cannot reach the sign-in service — is the database running?");
     } finally { setBusy(false); }

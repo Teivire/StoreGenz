@@ -104,6 +104,18 @@ const validators = {
         currency: { bsonType: "string", minLength: 1, maxLength: 4 }
       }
     }
+  },
+  sessions: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "staffId", "createdAt", "expiresAt"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        staffId: { bsonType: "string", minLength: 1 },
+        createdAt: { bsonType: "date" },
+        expiresAt: { bsonType: "date" }
+      }
+    }
   }
 };
 
@@ -117,6 +129,9 @@ const indexes = {
   sales: [
     { key: { createdAt: -1 }, name: "createdAt_-1" },
     { key: { status: 1, createdAt: -1 }, name: "status_1_createdAt_-1" }
+  ],
+  sessions: [
+    { key: { expiresAt: 1 }, name: "expiresAt_1", expireAfterSeconds: 0 }
   ]
 };
 

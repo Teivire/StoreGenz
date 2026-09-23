@@ -10,6 +10,9 @@
  * ┌────────────────────────┬────────────────────────────────────────────┐
  * │ login                  │ wrong PIN → 401 · inactive → 403 ·         │
  * │                        │ unknown → 401 · good → 200 {name,role}     │
+ * │ cookie session         │ no session → 401 · bad PIN → 401/no cookie │
+ * │                        │ login → Set-Cookie · whoami · role gate 403│
+ * │                        │ logout → Max-Age=0 · session then invalid   │
  * │ sale validation        │ empty lines → 400 · qty 0 / 1.5 / "x"      │
  * │                        │ → 400 · unknown SKU → 404                  │
  * │ stock boundary         │ qty == stock → 201 · qty == stock+1 → 409  │
@@ -28,9 +31,18 @@ let failures = 0;
 const req = (path, method, headers, body) =>
   fetch(BASE + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
 
+/** Cookie-session state for the /api/auth/session contract block. */
+let cookie = null;
+const cookieReq = (path, method, body) =>
+  fetch(BASE + path, { method, headers: { "Content-Type": "application/json", ...(cookie ? { Cookie: cookie } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+const takeCookie = res => {
+  const set = res.headers.get("set-cookie");
+  if (set) cookie = set.split(";")[0];
+};
+
 /** cases: [name, path, method, headers, body, expectStatus, expectBody?] */
 const CASES = [
-  // login
+  // login (header probe)
   ["login rejects wrong PIN", "/api/auth/login", "POST", H_CASHIER, { name: "Mony S.", pin: "9999" }, 401],
   ["login rejects unknown staff", "/api/auth/login", "POST", H_CASHIER, { name: "Nobody", pin: "1111" }, 401],
   ["login accepts valid staff", "/api/auth/login", "POST", H_CASHIER, { name: "Mony S.", pin: "3333" }, 200, b => b.name === "Mony S." && b.role === "Cashier"],
@@ -52,7 +64,39 @@ const CASES = [
   ["refund without auth is rejected", "/api/sales/@id0", "PATCH", { "Content-Type": "application/json" }, { reason: "nope" }, 401],
 ];
 
+/** Cookie-session block: runs before the header-table (POST also arms the cookie). */
+async function runSessionBlock() {
+  const check = (name, ok, detail) => { console.log(`${ok ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`); if (!ok) failures++; };
+
+  let res = await cookieReq("/api/auth/session", "GET");
+  check("whoami without a session is rejected", res.status === 401, `got ${res.status}`);
+
+  res = await cookieReq("/api/auth/session", "POST", { name: "Mony S.", pin: "9999" });
+  check("cookie login rejects wrong PIN (401, no cookie set)", res.status === 401 && !res.headers.get("set-cookie"), `got ${res.status}`);
+
+  res = await cookieReq("/api/auth/session", "POST", { name: "Mony S.", pin: "3333" });
+  const body = await res.json().catch(() => ({}));
+  check("cookie login returns profile and sets HttpOnly cookie", res.status === 200 && body.role === "Cashier" && /HttpOnly/i.test(res.headers.get("set-cookie") ?? ""), `got ${res.status}, role=${body.role}`);
+  takeCookie(res);
+
+  res = await cookieReq("/api/auth/session", "GET");
+  const who = await res.json().catch(() => ({}));
+  check("whoami resolves the session cookie", res.status === 200 && who.name === "Mony S." && who.role === "Cashier", `got ${res.status}, name=${who.name}`);
+
+  res = await cookieReq("/api/products", "POST", { name: "Nope", sku: "SKU-NOPE3", category: "T", price: 1, stock: 1 });
+  check("cookie session drives a role-gated mutation (cashier add → 403)", res.status === 403, `got ${res.status}`);
+
+  res = await cookieReq("/api/auth/session", "DELETE");
+  check("logout deletes the session and expires the cookie", res.status === 200 && /Max-Age=0/.test(res.headers.get("set-cookie") ?? ""), `got ${res.status}`);
+  takeCookie(res);
+
+  res = await cookieReq("/api/auth/session", "GET");
+  check("session is invalid after logout", res.status === 401, `got ${res.status}`);
+}
+
 async function main() {
+  await runSessionBlock();
+
   // setup: scratch product with stock 5, sold through the boundary cases
   const made = await req("/api/products", "POST", H, { name: "Contract Widget", sku: SKU, category: "Test", price: 1, stock: 5 });
   if (!made.ok) throw new Error(`setup failed: ${await made.text()}`);

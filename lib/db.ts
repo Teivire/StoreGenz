@@ -24,6 +24,10 @@ export type StoredStaffLegacy = StaffMember & { _id: string };
 /** Single-store settings: identity used by the sidebar, login screen, and printed invoices. */
 export type StoreSettings = { name: string; location: string; receiptFooter: string; currency: string };
 export type StoredSettings = StoreSettings & { _id: "settings" };
+/** Server-side login session: the browser cookie holds only the random _id token. */
+export type StoredSession = { _id: string; staffId: string; createdAt: Date; expiresAt: Date };
+export const SESSION_COOKIE = "pos_session";
+export const SESSION_TTL_MS = 30 * 86_400_000;
 
 export const DB_NAME = "storegenz";
 const uri = process.env.MONGODB_URI ?? `mongodb://127.0.0.1:27017/${DB_NAME}`;
@@ -55,6 +59,10 @@ export async function getStaffCollection() {
   return (await getDb()).collection<StoredStaff>("staff");
 }
 
+export async function getSessionsCollection() {
+  return (await getDb()).collection<StoredSession>("sessions");
+}
+
 const DEFAULT_SETTINGS: StoreSettings = { name: "StoreGenz", location: "Phnom Penh", receiptFooter: "Thank you for shopping with us!", currency: "$" };
 export async function getSettingsCollection() {
   return (await getDb()).collection<StoredSettings>("settings");
@@ -73,14 +81,65 @@ export async function readSettings(): Promise<StoreSettings> {
 /** Permission tiers, highest first. Cashiers sell and refund; managers run the catalog; admins manage people. */
 const ROLE_RANK: Record<StaffRole, number> = { Cashier: 1, Manager: 2, Administrator: 3 };
 
+/** Reads the session token from the request's Cookie header, if present. */
+function readSessionToken(request: Request): string | null {
+  const header = request.headers.get("cookie");
+  if (!header) return null;
+  for (const part of header.split(/;\s*/)) {
+    const eq = part.indexOf("=");
+    if (eq > 0 && part.slice(0, eq) === SESSION_COOKIE) return part.slice(eq + 1) || null;
+  }
+  return null;
+}
+
+/** Validates a name+PIN pair; returns the public profile or an HTTP status to map. */
+export async function checkCredentials(name: string, pin: string): Promise<{ ok: true; profile: PublicStaff } | { ok: false; status: number; message: string }> {
+  const doc = await getStaffCollection().then(c => c.findOne({ _id: name }));
+  if (!doc || doc.pin !== pin) return { ok: false, status: 401, message: "Invalid staff name or PIN." };
+  if (doc.status !== "Active") return { ok: false, status: 403, message: "This account is inactive. Ask an administrator to reactivate it." };
+  return { ok: true, profile: { name: doc.name, role: doc.role, permissions: doc.permissions, status: doc.status } };
+}
+
+/** Resolves the request's cookie session to the signed-in profile, or null. */
+export async function readSession(request: Request): Promise<PublicStaff | null> {
+  const token = readSessionToken(request);
+  if (!token) return null;
+  const session = await getSessionsCollection().then(c => c.findOne({ _id: token }));
+  if (!session || session.expiresAt.getTime() <= Date.now()) return null;
+  const doc = await getStaffCollection().then(c => c.findOne({ _id: session.staffId }));
+  if (!doc || doc.status !== "Active") return null;
+  return { name: doc.name, role: doc.role, permissions: doc.permissions, status: doc.status };
+}
+
+/** Deletes the request's session (logout) if it has one. */
+export async function deleteSession(request: Request): Promise<void> {
+  const token = readSessionToken(request);
+  if (token) await getSessionsCollection().then(c => c.deleteOne({ _id: token }));
+}
+
+/** Creates a new 30-day session for the staff member and returns its token. */
+export async function createSession(staffId: string): Promise<string> {
+  const token = crypto.randomUUID();
+  await getSessionsCollection().then(c => c.insertOne({ _id: token, staffId, createdAt: new Date(), expiresAt: new Date(Date.now() + SESSION_TTL_MS) }));
+  return token;
+}
+
 /**
- * Shared guard for mutating API routes: authenticates the X-Staff-Name / X-Staff-Pin
- * headers against the staff collection, then enforces the minimum role and that the
- * account is Active. Returns the caller's name on success. Throws plain Error objects
+ * Shared guard for mutating API routes: authenticates via the HttpOnly session
+ * cookie first (browser), falling back to the X-Staff-Name / X-Staff-Pin headers
+ * (scripts and tests), then enforces the minimum role and that the account is
+ * Active. Returns the caller's name on success. Throws plain Error objects
  * carrying an HTTP `status` (401 unauthenticated, 403 forbidden) for routes to map.
  */
 export async function requireStaff(request: Request, minRole: StaffRole): Promise<string> {
   const fail = (status: number, message: string): never => { throw Object.assign(new Error(message), { status }); };
+  if (readSessionToken(request)) {
+    const viaSession = await readSession(request);
+    if (viaSession) {
+      if (ROLE_RANK[viaSession.role] < ROLE_RANK[minRole]) fail(403, `Requires ${minRole} role or higher.`);
+      return viaSession.name;
+    }
+  }
   const name = request.headers.get("x-staff-name") ?? "";
   const pin = request.headers.get("x-staff-pin") ?? "";
   if (!name || !pin) fail(401, "Sign in to make changes.");
@@ -102,10 +161,13 @@ export async function ensureSeeded() {
   const products = db.collection<StoredProduct>("products");
   const sales = db.collection<StoredSale>("sales");
   const staff = db.collection<StoredStaff>("staff");
+  const sessions = db.collection<StoredSession>("sessions");
 
-  // Indexes: products category filter; sales list sort and stats aggregations.
+  // Indexes: products category filter; sales list sort and stats aggregations;
+  // sessions TTL cleanup (Mongo deletes expired sessions on its own schedule).
   await products.createIndex({ category: 1 });
   await sales.createIndex({ createdAt: -1 });
+  await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
   // Staff created before PINs existed get a default PIN so they can still sign in.
   await staff.updateMany({ pin: { $exists: false } }, { $set: { pin: "1234" } });
