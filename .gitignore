@@ -1,0 +1,9 @@
+node_modules
+.next
+dev-server.log
+.env*.local
+backups/
+.freebuff/preview-*.log*
+.freebuff/project-id
+.agents/
+tsconfig.tsbuildinfo
