@@ -2616,7 +2616,7 @@ function SettingsHub({ settings, sales, role, roles, canManage, onSave, onChange
       {views.map(t => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t}</button>)}
     </div>
     {tab === "General" && <GeneralSettings settings={settings} canManage={canManage} onSave={onSave}/>}
-    {tab === "Store / Locations" && <StoreLocationsSettings/>}
+    {tab === "Store / Locations" && <StoreLocationsSettings canManage={canManage}/>}
     {tab === "Users & Security" && <UsersSecuritySettings canManage={canManage} onChanged={onChanged}/>}
     {tab === "POS & Sales" && <PosSalesSettings settings={settings} canManage={canManage} onSave={onSave}/>}
     {tab === "Products & Inventory" && <InventorySettings settings={settings} canManage={canManage} onSave={onSave}/>}
@@ -2681,9 +2681,78 @@ function GeneralSettings({ settings, canManage, onSave, receiptsOnly }: { settin
   </div>;
 }
 
-/** Store / Locations: single-store today, says so plainly (no invented stores). */
-function StoreLocationsSettings() {
-  return <div className="panel empty-panel"><div className="empty"><strong>Single store mode</strong><p>StoreGenz currently runs one location. Multi-store support (per-location stock, sales scoping, and store switching) is not built yet — no invented locations are shown.</p></div></div>;
+/**
+ * Store / Locations: the store registry. The configured single store is seeded as
+ * ST-001; Add Store follows the recommended form (name, code, type, status) and
+ * writes through POST /api/stores with unique code/name enforcement server-side.
+ * Multi-store features beyond the registry (per-location stock, sales scoping,
+ * store switching) remain unbuilt and are stated plainly — no invented behavior.
+ */
+function StoreLocationsSettings({ canManage }: { canManage: boolean }) {
+  type StoreRow = { id: string; code: string; name: string; type: string; status: string; createdAt: string };
+  const [stores, setStores] = useState<StoreRow[] | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: "", code: "", type: "Retail Store", status: "Active" });
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(() => {
+    fetch("/api/stores", { credentials: "same-origin" }).then(r => r.ok ? r.json() : Promise.reject()).then(d => setStores(d as StoreRow[])).catch(() => setStores([]));
+  }, []);
+  useEffect(load, [load]);
+  const openForm = () => {
+    const list = stores ?? [];
+    const max = list.reduce((m, s) => Math.max(m, Number.parseInt(s.code.slice(3), 10) || 0), 0);
+    setForm({ name: "", code: `ST-${String(max + 1).padStart(3, "0")}`, type: "Retail Store", status: "Active" });
+    setError(null);
+    setShowForm(true);
+  };
+  const submit = async () => {
+    setError(null);
+    try {
+      const res = await fetch("/api/stores", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      const d = await res.json() as { error?: string };
+      if (!res.ok) return setError(d.error ?? "Could not create the store.");
+      setShowForm(false);
+      load();
+    } catch { setError("Could not reach the server."); }
+  };
+  return <>
+    <div className="panel table-panel"><div className="toolbar"><strong>Stores</strong><span className="you-chip">{stores?.length ?? 0} registered</span>
+      {canManage && <button className="outline-button" onClick={openForm}><Plus size={14}/> Add Store</button>}
+    </div>
+    {!stores ? <div className="empty">Loading…</div>
+      : stores.length === 0 ? <div className="empty">No stores registered yet — add the first one below.</div>
+      : <DataTable headers={["CODE", "NAME", "TYPE", "STATUS", "ADDED"]} rows={stores.map(s => [s.code, s.name, s.type, s.status, new Date(s.createdAt).toLocaleDateString(undefined, { dateStyle: "medium" })])}/>}
+    </div>
+    {showForm && <AddStoreForm form={form} setForm={setForm} error={error} onSubmit={submit} onCancel={() => setShowForm(false)}/>}
+  </>;
+}
+
+/** Add Store — the recommended form: name, code, type, status. */
+function AddStoreForm({ form, setForm, error, onSubmit, onCancel }: {
+  form: { name: string; code: string; type: string; status: string };
+  setForm: (f: { name: string; code: string; type: string; status: string }) => void;
+  error: string | null; onSubmit: () => void; onCancel: () => void;
+}) {
+  return <div className="panel stock-form" style={{ borderColor: "var(--line-strong, #2a2f3a)" }}>
+    <div className="toolbar"><h2>Add Store</h2><span className="you-chip">recommended form</span></div>
+    <p className="form-intro">Create a new store or business location.</p>
+    <div className="form-grid">
+      <label>Store Name *<input value={form.name} placeholder="Apple Store Siem Reap" onChange={e => setForm({ ...form, name: e.target.value })}/></label>
+      <label>Store Code *<input value={form.code} placeholder="ST-001" onChange={e => setForm({ ...form, code: e.target.value.toUpperCase() })}/></label>
+      <label>Store Type<select value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}><option>Retail Store</option><option>Warehouse</option><option>Online Store</option></select></label>
+      <label>Status
+        <span className="radio-row">
+          <label className="radio"><input type="radio" name="store-status" checked={form.status === "Active"} onChange={() => setForm({ ...form, status: "Active" })}/> Active</label>
+          <label className="radio"><input type="radio" name="store-status" checked={form.status === "Inactive"} onChange={() => setForm({ ...form, status: "Inactive" })}/> Inactive</label>
+        </span>
+      </label>
+    </div>
+    {error && <p className="field-error" role="alert">{error}</p>}
+    <div className="modal-actions">
+      <button className="primary-button" onClick={onSubmit}>Save store</button>
+      <button className="outline-button" onClick={onCancel}>Cancel</button>
+    </div>
+  </div>;
 }
 
 /** Users & Security: live security posture + force sign-out of all sessions. */

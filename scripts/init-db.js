@@ -362,6 +362,23 @@ const validators = {
       }
     }
   },
+  stores: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "id", "code", "name", "type", "status", "createdBy", "createdAt", "updatedAt"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        id: { bsonType: "string", minLength: 1 },
+        code: { bsonType: "string", minLength: 1, maxLength: 20 },
+        name: { bsonType: "string", minLength: 1, maxLength: 80 },
+        type: { enum: ["Retail Store", "Warehouse", "Online Store"] },
+        status: { enum: ["Active", "Inactive"] },
+        createdBy: { bsonType: "string" },
+        createdAt: { bsonType: "string" },
+        updatedAt: { bsonType: "string" }
+      }
+    }
+  },
   attendance: {
     $jsonSchema: {
       bsonType: "object",
@@ -524,6 +541,9 @@ const indexes = {
   departments: [
     { key: { name: 1 }, name: "name_1" }
   ],
+  stores: [
+    { key: { code: 1 }, name: "code_1", unique: true }
+  ],
   attendance: [
     { key: { clockIn: -1 }, name: "clockIn_-1" },
     { key: { staffName: 1, clockIn: -1 }, name: "staffName_1_clockIn_-1" }
@@ -554,7 +574,10 @@ async function main() {
       const have = new Set((await db.collection(name).listIndexes().toArray()).map(i => i.name));
       for (const idx of indexes[name] ?? []) {
         const idxName = idx.name ?? JSON.stringify(idx.key);
-        if (!have.has(idxName)) await db.collection(name).createIndex(idx.key, { name: idxName });
+        // Pass the full entry through (minus the key itself) so options like
+        // unique/partialFilterExpression survive — a name-only createIndex silently
+        // downgrades those and then clashes with the app's stricter index.
+        if (!have.has(idxName)) await db.collection(name).createIndex(idx.key, { ...idx, key: undefined });
       }
       console.log(`✓ collection "${name}" (validator + indexes ok)`);
     }

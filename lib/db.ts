@@ -65,6 +65,19 @@ export type Department = {
 };
 export type StoredDepartment = Department & { _id: string };
 
+/** A registered store/location (Settings → Store / Locations). Single-location today; the registry is multi-store ready. */
+export type StoreRecord = {
+  id: string;
+  code: string;        // e.g. ST-001 — unique across the registry
+  name: string;        // e.g. "Apple Store Siem Reap"
+  type: "Retail Store" | "Warehouse" | "Online Store";
+  status: "Active" | "Inactive";
+  createdBy: string;
+  createdAt: string;   // ISO
+  updatedAt: string;   // ISO
+};
+export type StoredStore = StoreRecord & { _id: string };
+
 /** Attendance: one document per clock-in; clockOut set when the shift ends. */
 export type AttendanceEntry = {
   id: string;
@@ -402,6 +415,10 @@ export async function getDepartmentsCollection() {
   return (await getDb()).collection<StoredDepartment>("departments");
 }
 
+export async function getStoresCollection() {
+  return (await getDb()).collection<StoredStore>("stores");
+}
+
 export async function getRolesCollection() {
   return (await getDb()).collection<StoredRole>("roles");
 }
@@ -719,6 +736,18 @@ export function ensureSeeded(): Promise<void> {
     if ((await roles.countDocuments()) === 0) {
       const now = new Date().toISOString();
       await roles.insertMany(ROLE_SEEDS.map(({ rank: _rank, ...r }) => ({ ...r, _id: r.id, createdAt: now, updatedAt: now })));
+    }
+
+    // Store registry: the configured single store becomes ST-001 so the list is
+    // never empty and the first added location starts at ST-002.
+    const stores = db.collection<StoredStore>("stores");
+    await stores.createIndex({ code: 1 }, { name: "code_1", unique: true });
+    if ((await stores.countDocuments()) === 0) {
+      const s = await db.collection<{ _id: string; name?: string }>("settings").findOne({ _id: "settings" });
+      if (s?.name) {
+        const now = new Date().toISOString();
+        await stores.insertOne({ _id: "ST-001", id: "ST-001", code: "ST-001", name: s.name, type: "Retail Store", status: "Active", createdBy: "system", createdAt: now, updatedAt: now });
+      }
     }
 
     // Seed the categories taxonomy from whatever the catalog already uses so the
