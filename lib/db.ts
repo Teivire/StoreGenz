@@ -39,6 +39,21 @@ export const SESSION_TTL_MS = 30 * 86_400_000;
 export const DB_NAME = "storegenz";
 const uri = process.env.MONGODB_URI ?? `mongodb://127.0.0.1:27017/${DB_NAME}`;
 
+// Pool/timeouts: the app is a POS — latency spikes and stuck sockets must fail fast
+// and retry, not hang a cashier. maxPoolSize sized for a single-store workload;
+// raise alongside maxPoolSize if you deploy multiple app instances.
+const CLIENT_OPTIONS = {
+  maxPoolSize: 20,
+  minPoolSize: 2,
+  maxIdleTimeMS: 60_000,
+  connectTimeoutMS: 5_000,
+  socketTimeoutMS: 30_000,
+  serverSelectionTimeoutMS: 5_000,
+  retryWrites: true,
+  retryReads: true,
+  w: "majority"
+} as const;
+
 declare global {
   // eslint-disable-next-line no-var
   var _mongoClientPromise: Promise<MongoClient> | undefined;
@@ -46,7 +61,7 @@ declare global {
 
 // Reuse the client across dev-server hot reloads so connections don't pile up.
 const clientPromise: Promise<MongoClient> =
-  global._mongoClientPromise ?? new MongoClient(uri).connect();
+  global._mongoClientPromise ?? new MongoClient(uri, CLIENT_OPTIONS).connect();
 if (process.env.NODE_ENV === "development") global._mongoClientPromise = clientPromise;
 
 export async function getDb() {
@@ -158,13 +173,14 @@ export async function requireStaff(request: Request, minRole: StaffRole): Promis
 }
 
 /**
- * Idempotent seed + index setup: inserts starter data and ensures query indexes.
- * Seed sales carry createdAt timestamps staggered across the current week (and the
- * prior one, for the comparison KPIs) relative to "now", so the Dashboard aggregates
- * always have plausible data regardless of when the database is created.
+ * Idempotent seed + index setup. Memoized per process: the checks (countDocuments,
+ * createIndex) are cheap but not free, and every API route called them on every
+ * request. Legacy migrations stay on their own memoized hooks below.
  */
-export async function ensureSeeded() {
-  const db = await getDb();
+let seedPromise: Promise<void> | null = null;
+export function ensureSeeded(): Promise<void> {
+  seedPromise ??= (async () => {
+    const db = await getDb();
   const products = db.collection<StoredProduct>("products");
   const sales = db.collection<StoredSale>("sales");
   const staff = db.collection<StoredStaff>("staff");
@@ -234,14 +250,19 @@ export async function ensureSeeded() {
     ];
     await sales.insertMany(seedSales.map(s => ({ ...s, _id: s.id })));
   }
+  })();
+  return seedPromise;
 }
 
 /**
  * Backfill for sales written before the analytics fields existed: legacy docs get
  * discount 0, saleTotal derived from their lines, and cost 0 per line (unknown →
- * profit counts 0, never negative). Idempotent; runs on sales reads.
+ * profit counts 0, never negative). Idempotent; memoized per process so the
+ * migration rescan runs at most once per server lifetime, not per request.
  */
-export async function normalizeLegacySales() {
+let normalizePromise: Promise<void> | null = null;
+export function normalizeLegacySales(): Promise<void> {
+  normalizePromise ??= (async () => {
   const sales = await getSalesCollection();
   const legacy = await sales.find({ $or: [{ discount: { $exists: false } }, { saleTotal: { $exists: false } }, { "lines.cost": { $exists: false } }] }).limit(500).toArray();
   for (const s of legacy) {
@@ -252,6 +273,8 @@ export async function normalizeLegacySales() {
     if (s.lines.some(l => l.cost === undefined)) patch.lines = s.lines.map(l => ({ ...l, cost: 0 }));
     if (Object.keys(patch).length > 0) await sales.updateOne({ _id: s._id }, { $set: patch });
   }
+  })();
+  return normalizePromise;
 }
 
 /**
@@ -259,21 +282,25 @@ export async function normalizeLegacySales() {
  * display date ("Today", "Yesterday", "N days ago", else ordered fallback).
  * Legacy documents get spread across the recent past so they land in sensible buckets.
  */
-export async function backfillCreatedAt() {
-  const sales = await getSalesCollection();
-  const legacy = await sales.find({ createdAt: { $exists: false } }).sort({ _id: -1 }).toArray();
-  if (legacy.length === 0) return;
-  const now = Date.now();
-  let seq = 0;
-  for (const s of legacy) {
-    let ageHours = seq * 2; // fallback: newest doc is most recent, older ones step back
-    if (/^today/i.test(s.date)) ageHours = 3;
-    else if (/^yesterday/i.test(s.date)) ageHours = 24 + 3;
-    else {
-      const m = s.date.match(/^(\d+)\s+days?\s+ago/i);
-      if (m) ageHours = Number(m[1]) * 24 + 3;
+let backfillPromise: Promise<void> | null = null;
+export function backfillCreatedAt(): Promise<void> {
+  backfillPromise ??= (async () => {
+    const sales = await getSalesCollection();
+    const legacy = await sales.find({ createdAt: { $exists: false } }).sort({ _id: -1 }).toArray();
+    if (legacy.length === 0) return;
+    const now = Date.now();
+    let seq = 0;
+    for (const s of legacy) {
+      let ageHours = seq * 2; // fallback: newest doc is most recent, older ones step back
+      if (/^today/i.test(s.date)) ageHours = 3;
+      else if (/^yesterday/i.test(s.date)) ageHours = 24 + 3;
+      else {
+        const m = s.date.match(/^(\d+)\s+days?\s+ago/i);
+        if (m) ageHours = Number(m[1]) * 24 + 3;
+      }
+      await sales.updateOne({ _id: s._id }, { $set: { createdAt: new Date(now - (ageHours + seq * 0.5) * 3600_000) } });
+      seq++;
     }
-    await sales.updateOne({ _id: s._id }, { $set: { createdAt: new Date(now - (ageHours + seq * 0.5) * 3600_000) } });
-    seq++;
-  }
+  })();
+  return backfillPromise;
 }

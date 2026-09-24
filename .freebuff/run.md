@@ -11,7 +11,8 @@
   ```
   npm run init-db -- --seed
   ```
-  Creates `storegenz` with `products` and `sales` collections, `$jsonSchema` validators, and indexes (`products.category_1`, `sales.createdAt_-1`, `sales.status_1_createdAt_-1`). Running the app without this also works — `ensureSeeded()` creates the same structure on first API use — but the script is the versioned source of truth for the schema.
+  Creates `storegenz` with `products`, `sales`, `sessions`, `settings`, and `staff` collections, `$jsonSchema` validators, and indexes (`products.category_1`, `sales.createdAt_-1`, `sales.status_1_createdAt_-1`, `sales.servedBy_1_createdAt_-1`, `sales.lines.sku_1`). Running the app without this also works — `ensureSeeded()` creates the same structure on first API use — but the script is the versioned source of truth for the schema.
+- Connection tuning lives in `lib/db.ts`: `maxPoolSize 20 / minPoolSize 5`, `serverSelectionTimeoutMS 4000`, `connectTimeoutMS 8000`, `socketTimeoutMS 30000`, `retryWrites: true`. One cached `MongoClient` per process; seeding and legacy-data migrations run once per process (memoized promise), so steady-state API calls do no schema work. If Mongo is down, writes surface a 503 with "Database offline" and reads fall back to in-memory data with a warning banner.
 - Backups (JSON exports of every collection into `backups/`, no mongodump needed):
   - **Automatic**: on server boot, `instrumentation.ts` writes `backups/<timestamp>-storegenz.json` if the newest backup is older than 24 hours (best-effort, never blocks startup).
   - **Scheduled (Windows)**: a Task Scheduler job "StoreGenz daily backup" runs `npm run backup` daily at 02:00. Register it on a new machine with `powershell -ExecutionPolicy Bypass -File scripts\register-backup-task.ps1`; inspect with `Get-ScheduledTaskInfo -TaskName 'StoreGenz daily backup'`.
@@ -19,7 +20,7 @@
   - **Restore**: `npm run restore -- backups/<file>.json --yes` (refuses without `--yes`; set `RESTORE_DB=<name>` to restore into a scratch database for testing).
   - **Retention**: every backup prunes `backups/` to the 30 newest files.
 - Concurrency regression check (dev server must be running): `npm run verify-concurrency` — races the sales/refund endpoints with a scratch product and asserts the money invariants (distinct invoice numbers under concurrent checkout, exact stock decrement, single-winner refunds, single restock). Cleans up after itself; exits non-zero on any broken invariant.
-- API contract suite (dev server must be running): `npm run verify-api` — 36 table-driven cases: cookie sessions (login/whoami/logout/deactivation cutoff), header login, sale validation, payment form, discounts (reject/clamp/apply), line-cost snapshots, stock boundary, refund lifecycle, role gating. Cleans up after itself.
+- API contract suite (dev server must be running): `npm run verify-api` — 41 table-driven cases: cookie sessions (login/whoami/logout/deactivation cutoff), header login, sale validation, payment form, discounts (reject/clamp/apply), line-cost snapshots, stock boundary, refund lifecycle, role gating, sales pagination/search envelope. Cleans up after itself.
 - Auth: browser mutations authenticate via an HttpOnly `pos_session` cookie (`sessions` collection, 30-day TTL); scripts/tests may still use the `X-Staff-Name`/`X-Staff-Pin` headers. Deactivating a staff member kills their sessions instantly.
 
 ## Run the server
@@ -40,6 +41,7 @@ npm run dev
   - `?category=Groceries` — exact category filter (indexed)
   - `?page=2&limit=2` — paging; out-of-range pages clamp to the last page
   - `?all=1` — legacy full-array mode (used by the app's hydration and catalog-wide consumers)
+- `curl "http://localhost:<port>/api/sales?page=1&limit=25"` → paginated envelope `{ items, total, page, limit, pages }`; `?q=` searches invoice id / customer / cashier server-side (indexed-backed sort `createdAt -1`); `?all=1` keeps the legacy full-array mode for client-side analytics (Dashboard/Reports). Default page size 25, max 200.
 - `curl http://localhost:<port>/` → 200.
 - POS integrity (verified behaviors): checkout atomically decrements per-product stock (oversell → 409, no partial apply); refund restocks the items and is single-shot (double refund → 409).
 - `curl http://localhost:<port>/api/staff` → list of staff (`{ name, role, permissions, status }`; roles: Administrator/Manager/Cashier). `POST` creates (duplicate name → 409); `PATCH/DELETE /api/staff/<urlencoded name>` updates or removes (admins are undeletable in the UI). Validated by `$jsonSchema` in `init-db`.

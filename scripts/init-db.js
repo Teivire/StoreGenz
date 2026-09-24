@@ -134,7 +134,9 @@ const indexes = {
   ],
   sales: [
     { key: { createdAt: -1 }, name: "createdAt_-1" },
-    { key: { status: 1, createdAt: -1 }, name: "status_1_createdAt_-1" }
+    { key: { status: 1, createdAt: -1 }, name: "status_1_createdAt_-1" },
+    { key: { customer: 1 }, name: "customer_1" },
+    { key: { servedBy: 1, createdAt: -1 }, name: "servedBy_1_createdAt_-1" }
   ],
   sessions: [
     { key: { expiresAt: 1 }, name: "expiresAt_1", expireAfterSeconds: 0 }

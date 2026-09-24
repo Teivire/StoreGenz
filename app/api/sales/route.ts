@@ -3,14 +3,68 @@ import { backfillCreatedAt, ensureSeeded, getProductsCollection, getSalesCollect
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
-export async function GET() {
+const DEFAULT_PAGE_SIZE = 25;
+const MAX_PAGE_SIZE = 100;
+
+/** Escapes regex special characters so user input is matched literally. */
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * GET /api/sales
+ *   ?q=inv-107         — literal substring match on id/customer (case-insensitive)
+ *   ?page=1&limit=25   — paginated envelope { sales, total, page, limit, pages }
+ *   ?all=1             — legacy full list (array), for dashboard/report consumers
+ *
+ * Server-side paging keeps the payload bounded as the sales history grows; the
+ * invoice prefix search uses the same regex-escaped matching as products.
+ */
+export async function GET(request: Request) {
   try {
     await ensureSeeded();
     await backfillCreatedAt();
     await normalizeLegacySales();
+    const { searchParams } = new URL(request.url);
+    const query = Object.fromEntries(searchParams.entries());
+
+    const filter: Record<string, unknown> = {};
+    const q = (query.q ?? "").trim();
+    if (q) {
+      const rx = new RegExp(escapeRegex(q), "i");
+      filter.$or = [{ id: rx }, { customer: rx }];
+    }
+
     const sales = await getSalesCollection();
-    const docs = await sales.find().sort({ _id: -1 }).toArray();
-    return NextResponse.json(docs.map(({ _id, ...s }) => s));
+
+    // Legacy mode: every match as a plain array (dashboard/report consumers). The
+    // dashboard's aggregates are computed over this full set client-side.
+    if (query.all === "1" || query.all === "true") {
+      const docs = await sales.find(filter).sort({ _id: -1 }).toArray();
+      return NextResponse.json(docs.map(({ _id, ...s }) => s));
+    }
+
+    // Sanitize paging params: positive integers with hard clamps.
+    const limit = Math.min(
+      MAX_PAGE_SIZE,
+      Math.max(1, Number.parseInt(query.limit ?? "", 10) || DEFAULT_PAGE_SIZE)
+    );
+    const total = await sales.countDocuments(filter);
+    const pages = Math.max(1, Math.ceil(total / limit));
+    const page = Math.min(pages, Math.max(1, Number.parseInt(query.page ?? "", 10) || 1));
+
+    const docs = await sales
+      .find(filter)
+      .sort({ _id: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .toArray();
+
+    return NextResponse.json({
+      sales: docs.map(({ _id, ...s }) => s),
+      total,
+      page,
+      limit,
+      pages
+    });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 503 });
   }

@@ -80,6 +80,50 @@ const CASES = [
   ["refund without auth is rejected", "/api/sales/@last", "PATCH", { "Content-Type": "application/json" }, { reason: "nope" }, 401],
 ];
 
+/** Server-pagination contract for GET /api/sales (runs after the table, before cleanup). */
+async function runPaginationBlock() {
+  const check = (name, ok, detail) => { console.log(`${ok ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`); if (!ok) failures++; };
+  const get = async qs => { const r = await fetch(`${BASE}/api/sales${qs}`); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+
+  let res = await get("?page=1&limit=5");
+  check("pagination envelope has total/pages", res.status === 200 && Array.isArray(res.body.sales) && typeof res.body.total === "number" && typeof res.body.pages === "number", `total=${res.body.total} pages=${res.body.pages}`);
+  const total = res.body.total;
+  const firstPage = res.body.sales;
+  check("page size is respected", firstPage.length <= 5, `got ${firstPage.length}`);
+
+  const res2 = await get("?page=2&limit=5");
+  check("page 2 differs from page 1", res2.body.sales.length > 0 && res2.body.sales[0].id !== firstPage[0].id, `${res2.body.sales[0]?.id} vs ${firstPage[0]?.id}`);
+  check("pages clamp past the end", (await get(`?page=9999&limit=5`)).body.page <= Math.max(1, Math.ceil(total / 5)));
+
+  res = await get("?limit=0");
+  check("limit 0 falls back to default", res.body.sales.length > 0 && res.body.limit >= 1, `limit=${res.body.limit}`);
+  res = await get("?limit=-5");
+  check("negative limit is clamped", res.status === 200 && res.body.limit >= 1, `limit=${res.body.limit}`);
+  res = await get("?limit=100000");
+  check("limit caps at max", res.body.limit <= 100, `limit=${res.body.limit}`);
+
+  res = await get(`?q=${encodeURIComponent("#INV-")}`);
+  check("q search matches invoice prefix", res.status === 200 && res.body.total > 0 && res.body.sales.every(s => /inv/i.test(s.id)), `total=${res.body.total}`);
+  const known = await get("?limit=1");
+  const cust = known.body.sales[0]?.customer ?? "";
+  if (cust) {
+    const byCust = await get(`?q=${encodeURIComponent(cust)}`);
+    check("q search matches customer", byCust.body.total > 0 && byCust.body.sales.every(s => `${s.id} ${s.customer}`.toLowerCase().includes(cust.toLowerCase())), `customer="${cust}" total=${byCust.body.total}`);
+  }
+  res = await get(`?q=${encodeURIComponent("Contract Widget(")}`);
+  check("regex metacharacters are matched literally", res.status === 200 && res.body.total === 0, `total=${res.body.total}`);
+
+  res = await get("?all=1");
+  check("all=1 returns legacy array", res.status === 200 && Array.isArray(res.body), `length=${Array.isArray(res.body) ? res.body.length : "-"}`);
+  res = await get("?all=1&q=zzz-no-match");
+  check("all=1 respects q filter", Array.isArray(res.body) && res.body.length === 0);
+
+  // Sorting: newest first
+  const sorted = await get("?page=1&limit=3");
+  const ids = sorted.body.sales.map(s => parseInt(s.id.slice(5), 10));
+  check("results sort newest-first", ids.every((n, i) => i === 0 || ids[i - 1] >= n), ids.join(","));
+}
+
 /** Cookie-session block: runs before the header-table (POST also arms the cookie). */
 async function runSessionBlock() {
   const check = (name, ok, detail) => { console.log(`${ok ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`); if (!ok) failures++; };
@@ -112,6 +156,7 @@ async function runSessionBlock() {
 
 async function main() {
   await runSessionBlock();
+  await runPaginationBlock();
 
   // setup: scratch product with stock 5, sold through the boundary cases;
   // a second product with stock 10 hosts the payment-form cases

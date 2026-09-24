@@ -127,7 +127,9 @@ export default function Home() {
   const refreshAll = async () => {
     const gen = ++refreshGen.current;
     try {
-      const [pRes, sRes, sfRes, seRes] = await Promise.all([fetch("/api/products?all=1"), fetch("/api/sales"), fetch("/api/staff"), fetch("/api/settings")]);
+      // all=1: full arrays — the dashboard/reports aggregates filter the complete
+      // history client-side; the big Transactions table pages server-side instead.
+      const [pRes, sRes, sfRes, seRes] = await Promise.all([fetch("/api/products?all=1"), fetch("/api/sales?all=1"), fetch("/api/staff"), fetch("/api/settings")]);
       if (!pRes.ok || !sRes.ok) throw new Error("API unavailable");
       const [p, s, sf, se] = await Promise.all([pRes.json(), sRes.json(), sfRes.json(), seRes.ok ? seRes.json() : null]);
       if (!mountedRef.current || gen !== refreshGen.current) return;
@@ -773,6 +775,14 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
   const [tab, setTab] = useState<SalesTab>(initialTab);
   const [cardsView, setCardsView] = useState(false);
   const [historyQuery, setHistoryQuery] = useState(initialHistoryQuery ?? "");
+  // Server-paged history (falls back to local filtering offline). `version` bumps
+  // after a refund so the current page refetches with fresh status.
+  const [version, setVersion] = useState(0);
+  const [page, setPage] = useState(1);
+  const [serverSales, setServerSales] = useState<Sale[] | null>(null);
+  const [serverMeta, setServerMeta] = useState({ total: 0, pages: 1 });
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [loadingPage, setLoadingPage] = useState(false);
   const [cart, setCart] = useState<SaleLine[]>([]);
   const [productQuery, setProductQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -786,11 +796,34 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
   const total = cart.reduce((sum,l)=>sum+l.price*l.qty,0);
   const visibleProducts = catalog.filter(p => `${p.name} ${p.sku} ${p.category}`.toLowerCase().includes(productQuery.toLowerCase()));
   const refundable = sales.filter(s => s.status !== "Refunded");
-  const historyMatches = sales.filter(s => `${s.id} ${s.customer}`.toLowerCase().includes(historyQuery.toLowerCase()));
+  // Server page when online; local filter as offline fallback.
+  const historyMatches = serverSales ?? sales.filter(s => `${s.id} ${s.customer}`.toLowerCase().includes(historyQuery.toLowerCase()));
+
+  // Fetch one server page whenever search/page changes (debounced, aborted), and
+  // after refunds (version bump) so statuses refresh without a manual reload.
+  useEffect(() => {
+    if (tab !== "history") return;
+    const controller = new AbortController();
+    setLoadingPage(true);
+    const t = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ q: historyQuery, page: String(page), limit: "25" });
+        const res = await fetch(`/api/sales?${params}`, { signal: controller.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json() as { sales: Sale[]; total: number; pages: number };
+        setServerSales(data.sales);
+        setServerMeta({ total: data.total, pages: data.pages });
+        setServerError(null);
+      } catch (e) {
+        if ((e as Error).name !== "AbortError") { setServerSales(null); setServerError("Could not load sales — showing local data."); }
+      } finally { setLoadingPage(false); }
+    }, 250);
+    return () => { controller.abort(); clearTimeout(t); };
+  }, [tab, historyQuery, page, version]);
   const refunds = sales.filter(s => s.status === "Refunded");
   const switchTab = (t: SalesTab) => { setTab(t); setRefundDone(null); };
   const startRefund = (s: Sale) => { setViewing(null); setRefundNote(""); setRefundDone(null); setRefunding(s); };
-  const confirmRefund = () => { if (!refunding || busyRef.current) return; busyRef.current = true; const target = refunding; setBusy(true); onRefund(target.id, refundNote, ok => { busyRef.current = false; setBusy(false); if (ok) setRefundDone(target.id); setRefunding(null); }); };
+  const confirmRefund = () => { if (!refunding || busyRef.current) return; busyRef.current = true; const target = refunding; setBusy(true); onRefund(target.id, refundNote, ok => { busyRef.current = false; setBusy(false); if (ok) { setRefundDone(target.id); setVersion(v => v + 1); } setRefunding(null); }); };
   const [paying, setPaying] = useState(false);
   const openPayment = () => { if (busyRef.current || cart.length === 0) return; setJustCheckedOut(null); setPaying(true); };
   const doCheckout = (p: SalePayment) => {
@@ -806,7 +839,7 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
   return <><PageHeading title={pageInfo[tab === "pos" ? "POS" : tab === "history" ? "Transactions" : "Returns & Refunds"].title} sub={pageInfo[tab === "pos" ? "POS" : tab === "history" ? "Transactions" : "Returns & Refunds"].subtitle}/>
   {refundDone && <p className="checkout-success success-banner" role="status">Refund for {refundDone} recorded successfully.</p>}
   {tab==="pos" && <div className="pos-layout"><div className="panel product-picker"><div className="toolbar"><h2>Choose products</h2><div className="filter"><Search size={15}/><input value={productQuery} onChange={e=>setProductQuery(e.target.value)} placeholder="Search products"/></div></div><div className="picker-grid">{visibleProducts.map(p=>{const inCart=cart.find(l=>l.sku===p.sku)?.qty??0;const left=p.stock-inCart;return <button key={p.sku} className="picker-card" disabled={left<=0} onClick={()=>{setJustCheckedOut(null);setCart(c=>c.some(l=>l.sku===p.sku)?c.map(l=>l.sku===p.sku?{...l,qty:l.qty+1}:l):[...c,toLine(p)]);}}><div className="picker-thumb">{p.image?<img src={p.image} alt=""/>:<div className="product-placeholder"><Package size={20}/></div>}</div><strong>{p.name}</strong><span>{money(p.price)} · {left<=0?"none left":"in stock: "+left}</span></button>;})}{visibleProducts.length===0&&<div className="empty">No products match your search.</div>}</div></div><div className="panel cart-panel"><div className="panel-header"><h2>Current sale</h2><span className="status paid">{cart.reduce((n,l)=>n+l.qty,0)} items</span></div>{cart.length===0?<div className="empty">Your cart is empty</div>:<div className="cart-lines">{cart.map((l,i)=><div className="cart-line" key={l.sku}><div><strong>{l.name}</strong><span>{money(l.price)} × {l.qty}</span></div><button aria-label={`Remove ${l.name}`} onClick={()=>setCart(c=>c.filter((_,idx)=>idx!==i))}><X size={14}/></button></div>)}</div>}<div className="cart-total"><span>Subtotal</span><strong>{money(total)}</strong></div>{justCheckedOut&&<p className="checkout-success" role="status">Sale {justCheckedOut.id} recorded.{justCheckedOut.changeDue ? ` Change due ${money(justCheckedOut.changeDue)}.` : ""}</p>}<button className="primary-button checkout" disabled={cart.length===0||busy} onClick={openPayment}>{busy ? "Charging…" : `Charge ${money(total)}`}</button></div></div>}
-  {tab==="history" && <div className="panel table-panel"><div className="toolbar"><strong>{historyQuery ? `${historyMatches.length} of ${sales.length} sales` : `${sales.length} sales`}</strong><div className="filter"><Search size={15}/><input placeholder="Search invoice or customer" value={historyQuery} onChange={e=>setHistoryQuery(e.target.value)}/>{historyQuery&&<button className="filter-clear" aria-label="Clear sales search" onClick={()=>setHistoryQuery("")}><X size={13}/></button>}</div><button className="outline-button" onClick={()=>setCardsView(v=>!v)}>{cardsView?"Table view":"Card view"}</button></div>{historyMatches.length===0?<div className="empty">No sales match your search.</div>:cardsView?<div className="receipts-grid">{historyMatches.map(s=><div className="panel receipt-card" key={s.id}><div className="receipt-card-head"><strong>{s.id}</strong><span className={`status ${statusClass(s.status)}`}>{s.status}</span></div><p>{s.customer} · {s.date}</p><div className="receipt-card-total"><span>{itemCount(s)} items</span><strong>{money(saleTotal(s))}</strong></div><button className="outline-button" onClick={()=>setViewing(s)}>View receipt</button></div>)}</div>:<SalesTable sales={historyMatches} onView={setViewing} onRefund={startRefund}/>}</div>}
+  {tab==="history" && <div className="panel table-panel"><div className={`toolbar ${loadingPage?"row-loading":""}`}><strong>{serverSales ? (historyQuery ? `${serverMeta.total} matching sales` : `${serverMeta.total} sales`) : (historyQuery ? `${historyMatches.length} of ${sales.length} sales` : `${sales.length} sales`)}</strong><div className="filter"><Search size={15}/><input placeholder="Search invoice or customer" value={historyQuery} onChange={e=>{setHistoryQuery(e.target.value);setPage(1);}}/>{historyQuery&&<button className="filter-clear" aria-label="Clear sales search" onClick={()=>{setHistoryQuery("");setPage(1);}}><X size={13}/></button>}</div><button className="outline-button" onClick={()=>setCardsView(v=>!v)}>{cardsView?"Table view":"Card view"}</button></div>{serverError&&<p className="offline-banner" role="alert">{serverError}</p>}{historyMatches.length===0?<div className="empty">{loadingPage?"Loading…":"No sales match your search."}</div>:cardsView?<div className={`receipts-grid ${loadingPage?"row-loading":""}`}>{historyMatches.map(s=><div className="panel receipt-card" key={s.id}><div className="receipt-card-head"><strong>{s.id}</strong><span className={`status ${statusClass(s.status)}`}>{s.status}</span></div><p>{s.customer} · {s.date}</p><div className="receipt-card-total"><span>{itemCount(s)} items</span><strong>{money(saleTotal(s))}</strong></div><button className="outline-button" onClick={()=>setViewing(s)}>View receipt</button></div>)}</div>:<SalesTable sales={historyMatches} onView={setViewing} onRefund={startRefund}/>}{serverSales && serverMeta.pages > 1 && (<div className="pager"><button className="outline-button" disabled={page<=1} onClick={()=>setPage(page-1)}>‹ Prev</button><span>Page {page} of {serverMeta.pages} · {serverMeta.total} sales</span><button className="outline-button" disabled={page>=serverMeta.pages} onClick={()=>setPage(page+1)}>Next ›</button></div>)}</div>}
   {tab==="returns" && <><div className="panel table-panel"><div className="toolbar"><strong>Refundable sales</strong><div className="filter"><Search size={15}/><input placeholder="Search sales" readOnly/></div><button className="select-button">All payments <ChevronDown size={14}/></button></div>{refundable.length===0?<div className="empty">Nothing left to refund.</div>:<SalesTable sales={refundable} onView={setViewing} onRefund={startRefund}/>}</div><div className="panel table-panel"><div className="toolbar"><strong>{refunds.length} refunds</strong></div>{refunds.length===0?<div className="empty">No refunds yet.</div>:<DataTable headers={["INVOICE","CUSTOMER","DATE","REFUNDED","REASON","STATUS"]} rows={refunds.map(s=>[s.id,s.customer,s.date,money(saleTotal(s)),s.refundReason||"—","Refunded"])}/>}</div></>}
   {viewing && <ReceiptModal sale={viewing} onClose={()=>setViewing(null)} onRefund={startRefund} storeName={storeName} storeLocation={storeLocation} receiptFooter={receiptFooter} currency={currency}/>}
   {paying && <PaymentModal total={total} itemCount={cart.reduce((n,l)=>n+l.qty,0)} currency={currency} role={role} busy={busy} onClose={()=>setPaying(false)} onConfirm={doCheckout}/>}
