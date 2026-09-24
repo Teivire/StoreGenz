@@ -87,6 +87,184 @@ type CustomerLite = { id: string; name: string; phone: string; email: string; ad
 type CustStatementLite = { id: string; name: string; group: string; phone: string; email: string; loyaltyPoints: number; owed: number; paid: number; balance: number; lastActivity: string };
 type MethodSetting = { name: string; enabled: boolean };
 type RecurringLite = { id: string; category: string; amount: number; frequency: "weekly" | "monthly"; note: string; nextRun: string; lastRun?: string; active: boolean; createdBy: string; createdAt: string };
+type ShiftLite = { id: string; openedBy: string; openedAt: string; openingFloat: number; closedBy?: string; closedAt?: string; closingCount?: number; expectedCash?: number; variance?: number; note?: string; movements: { id: string; direction: "in" | "out"; amount: number; reason: string; by: string; createdAt: string }[] };
+type RegisterData = { open: ShiftLite | null; history: ShiftLite[]; movements: { id: string; shiftId: string; direction: "in" | "out"; amount: number; reason: string; by: string; createdAt: string }[]; defaults: { openingFloat: number; varianceAlert: number } };
+
+/** Shared register state: open shift, history, defaults. */
+function useRegister() {
+  const [data, setData] = useState<RegisterData | null>(null);
+  const load = useCallback(() => {
+    fetch("/api/register").then(r => r.ok ? r.json() : Promise.reject()).then(d => setData(d as RegisterData)).catch(() => setData({ open: null, history: [], movements: [], defaults: { openingFloat: 50, varianceAlert: 5 } }));
+  }, []);
+  useEffect(load, [load]);
+  return { data, load };
+}
+
+/** Cash Register hub: overview, open, current shift, movements, close, history, settings. */
+function RegisterHub({ sales, role }: { sales: Sale[]; role: StaffRole }) {
+  const tabs = ["Register Overview", "Open Register", "Current Shift", "Cash In / Cash Out", "Close Register", "Register History", "Register Settings"] as const;
+  const [tab, setTab] = useState<(typeof tabs)[number]>("Register Overview");
+  const canManage = CAN.manageProducts(role);
+  const { data, load } = useRegister();
+  const open = data?.open ?? null;
+  const history = data?.history ?? [];
+  const defaults = data?.defaults ?? { openingFloat: 50, varianceAlert: 5 };
+  const pendingTab = open ? null : (tab === "Current Shift" || tab === "Cash In / Cash Out" || tab === "Close Register") ? "Open Register" : null;
+  useEffect(() => { if (pendingTab) setTab(pendingTab as typeof tab); }, [pendingTab]);
+  const cashSales = sales.filter(s => s.payment === "Cash" && s.status === "Paid");
+  const noteOf = (s: ShiftLite | null) => (open && s) ? s.movements : [];
+  const expected = open ? open.expectedCash ?? open.openingFloat : 0;
+  return <>
+    <PageHeading title="Cash Register" sub="Shift-based drawer control with counted variances"/>
+    <div className="subnav subnav-wrap">
+      {tabs.map(t => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t}</button>)}
+    </div>
+    {tab === "Register Overview" && <>
+      <div className="stats-grid five">
+        <Stat label="Register" value={open ? "Open" : "Closed"} change={open ? `${open.id} · ${open.openedBy}` : "no active shift"} caption="now" icon={Banknote} tone={open ? "green" : "orange"}/>
+        <Stat label="Expected drawer" value={open ? money(expected) : "—"} change={open ? `float ${money(open.openingFloat)} + takings` : "open to count"} caption="live" icon={Wallet} tone="blue"/>
+        <Stat label="Cash sales (all)" value={money(cashSales.reduce((n, s) => n + saleTotal(s), 0))} change={`${cashSales.length} cash sale${cashSales.length === 1 ? "" : "s"}`} caption="all time" icon={CircleDollarSign} tone="green"/>
+        <Stat label="Shifts closed" value={String(history.length)} change={history.length ? `last variance ${money(history[0].variance ?? 0)}` : "none yet"} caption="history" icon={ClipboardList} tone="purple"/>
+        <Stat label="Variance alert" value={money(defaults.varianceAlert)} change="threshold set in settings" caption="policy" icon={ShieldCheck} tone="orange"/>
+      </div>
+      <div className="panel"><div className="toolbar"><strong>How it works</strong></div>
+        <p className="form-intro">Open the register with a counted float, take cash sales all day (movement ledger records every in/out), then close with a counted drawer. The expected cash is computed from real transactions — the difference is your variance.</p>
+      </div>
+    </>}
+    {tab === "Open Register" && <OpenRegisterView canManage={canManage} defaults={defaults} open={open} reload={load}/>}
+    {tab === "Current Shift" && <CurrentShiftView open={open}/>}
+    {tab === "Cash In / Cash Out" && <CashMovementView canManage={canManage} open={open} reload={load}/>}
+    {tab === "Close Register" && <CloseRegisterView canManage={canManage} open={open} reload={load}/>}
+    {tab === "Register History" && <div className="panel table-panel"><div className="toolbar"><strong>{history.length} closed shift{history.length === 1 ? "" : "s"}</strong></div>
+      {history.length === 0 ? <div className="empty">No closed shifts yet — the history of counted variances builds here.</div>
+        : <DataTable headers={["SHIFT", "OPENED", "CLOSED", "BY", "FLOAT", "EXPECTED", "COUNTED", "VARIANCE"]} rows={[...history].sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? "")).map(s => { const v = money(s.variance ?? 0); const hot = Math.abs(s.variance ?? 0) >= defaults.varianceAlert; return [s.id, new Date(s.openedAt).toLocaleDateString(), s.closedAt ? new Date(s.closedAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—", s.closedBy ?? "—", money(s.openingFloat), money(s.expectedCash ?? 0), money(s.closingCount ?? 0), hot ? v + " ⚠" : v]; })}/>}
+    </div>}
+    {tab === "Register Settings" && <RegisterSettingsView defaults={defaults} canManage={role === "Administrator"}/>}
+  </>;
+}
+
+/** Open Register: counted float form, blocked while a shift is open. */
+function OpenRegisterView({ canManage, defaults, open, reload }: { canManage: boolean; defaults: { openingFloat: number; varianceAlert: number }; open: ShiftLite | null; reload: () => void }) {
+  const [amount, setAmount] = useState(String(defaults.openingFloat));
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (open) return <div className="panel empty-panel"><div className="empty"><strong>Register is already open</strong><p>{open.id} was opened by {open.openedBy} — close it before starting a new shift.</p></div></div>;
+  const submit = async () => {
+    setBusy(true); setError(null);
+    const res = await fetch("/api/register", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ action: "open", openingFloat: Number(amount), note }) });
+    const d = await res.json() as { error?: string };
+    if (res.ok) { reload(); } else { setError(d.error ?? "Could not open."); setBusy(false); }
+  };
+  return <div className="panel purchase-form-panel"><div className="toolbar"><strong>Open a new shift</strong></div>
+    {!canManage ? <div className="empty">Manager or administrator access required.</div> : <>
+      <div className="form-grid">
+        <label>Opening float (counted cash)<input type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)}/></label>
+        <label>Note (optional)<input placeholder="e.g. Monday morning, till 1" value={note} onChange={e => setNote(e.target.value)}/></label>
+      </div>
+      {error && <p className="field-error" role="alert">{error}</p>}
+      <div className="modal-actions"><button className="primary-button" disabled={busy || !(Number(amount) >= 0)} onClick={submit}>{busy ? "Opening…" : "Open register"}</button></div>
+      <p className="form-intro" style={{ marginTop: 8 }}>Default float {money(defaults.openingFloat)} — change it in Register Settings.</p>
+    </>}
+  </div>;
+}
+
+/** Current Shift: live takings, movements list, expected drawer. */
+function CurrentShiftView({ open }: { open: ShiftLite | null }) {
+  if (!open) return <div className="panel empty-panel"><div className="empty"><strong>No open shift</strong><p>Open the register to see live drawer math.</p></div></div>;
+  return <div className="panel table-panel"><div className="toolbar"><strong>{open.id} · opened by {open.openedBy} · float {money(open.openingFloat)}</strong></div>
+    <div className="table-wrap"><table><thead><tr>{["ITEM", "VALUE"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+      <tr><td>Opening float</td><td>{money(open.openingFloat)}</td></tr>
+      <tr><td>Expected drawer (live)</td><td><strong>{money(open.expectedCash ?? open.openingFloat)}</strong></td></tr>
+      <tr><td>Adjustments so far</td><td>{open.movements.length === 0 ? "none" : `${open.movements.length} movement${open.movements.length === 1 ? "" : "s"}`}</td></tr>
+    </tbody></table></div>
+  </div>;
+}
+
+/** Cash In / Out: manager-only drawer adjustments with reasons. */
+function CashMovementView({ canManage, open, reload }: { canManage: boolean; open: ShiftLite | null; reload: () => void }) {
+  const [direction, setDirection] = useState("out");
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!open) return <div className="panel empty-panel"><div className="empty"><strong>No open shift</strong><p>Open the register first.</p></div></div>;
+  const submit = async () => {
+    setBusy(true); setError(null);
+    const res = await fetch("/api/register", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ action: direction === "in" ? "cashIn" : "cashOut", amount: Number(amount), reason }) });
+    const d = await res.json() as { error?: string };
+    if (res.ok) { setAmount(""); setReason(""); reload(); } else { setError(d.error ?? "Failed."); setBusy(false); }
+  };
+  return <div className="panel purchase-form-panel"><div className="toolbar"><strong>Record drawer movement</strong></div>
+    {!canManage ? <div className="empty">Manager or administrator access required.</div> : <>
+      <div className="form-grid">
+        <label>Direction<select value={direction} onChange={e => setDirection(e.target.value)}><option value="out">Cash out (drop, petty cash)</option><option value="in">Cash in (top-up)</option></select></label>
+        <label>Amount (USD)<input type="number" min="0.01" step="0.01" value={amount} onChange={e => setAmount(e.target.value)}/></label>
+        <label style={{ gridColumn: "1 / -1" }}>Reason *<input placeholder="e.g. Bank drop / change top-up" value={reason} onChange={e => setReason(e.target.value)}/></label>
+      </div>
+      {error && <p className="field-error" role="alert">{error}</p>}
+      <div className="modal-actions"><button className="primary-button" disabled={busy || !(Number(amount) > 0) || !reason.trim()} onClick={submit}>{busy ? "Recording…" : "Record movement"}</button></div>
+      {open.movements.length > 0 && <div className="table-wrap" style={{ marginTop: 12 }}><table><thead><tr>{["ID", "DIR", "AMOUNT", "REASON", "BY", "WHEN"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+        {open.movements.map(m => <tr key={m.id}><td>{m.id}</td><td>{m.direction === "in" ? "In" : "Out"}</td><td>{money(m.amount)}</td><td>{m.reason}</td><td>{m.by}</td><td>{new Date(m.createdAt).toLocaleTimeString()}</td></tr>)}
+      </tbody></table></div>}
+    </>}
+  </div>;
+}
+
+/** Close Register: counted drawer vs server-computed expected → variance. */
+function CloseRegisterView({ canManage, open, reload }: { canManage: boolean; open: ShiftLite | null; reload: () => void }) {
+  const [count, setCount] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!open) return <div className="panel empty-panel"><div className="empty"><strong>No open shift</strong><p>Nothing to close.</p></div></div>;
+  const expected = open.expectedCash ?? open.openingFloat;
+  const variance = Number.isFinite(Number(count)) && count !== "" ? Math.round((Number(count) - expected) * 100) / 100 : null;
+  const submit = async () => {
+    setBusy(true); setError(null);
+    const res = await fetch("/api/register", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ action: "close", closingCount: Number(count), note }) });
+    const d = await res.json() as { error?: string };
+    if (res.ok) { setCount(""); setNote(""); reload(); } else { setError(d.error ?? "Failed."); setBusy(false); }
+  };
+  return <div className="panel purchase-form-panel"><div className="toolbar"><strong>Close {open.id} — count the drawer</strong></div>
+    {!canManage ? <div className="empty">Manager or administrator access required.</div> : <>
+      <div className="form-grid">
+        <label>Expected (computed from ledger)<input value={money(expected)} disabled/></label>
+        <label>Counted cash in drawer *<input type="number" min="0" step="0.01" value={count} onChange={e => setCount(e.target.value)} autoFocus/></label>
+        <label style={{ gridColumn: "1 / -1" }}>Note (optional)<input placeholder="e.g. end of Monday shift" value={note} onChange={e => setNote(e.target.value)}/></label>
+      </div>
+      {variance !== null && <p className="form-intro">Variance: <strong style={{ color: variance === 0 ? "#3fb27f" : "#e07a5f" }}>{money(variance)}</strong>{variance !== 0 && " — investigate before signing off."}</p>}
+      {error && <p className="field-error" role="alert">{error}</p>}
+      <div className="modal-actions"><button className="primary-button" disabled={busy || !(Number(count) >= 0)} onClick={submit}>{busy ? "Closing…" : "Close register"}</button></div>
+    </>}
+  </div>;
+}
+
+/** Register Settings: default float + variance alert (admin). */
+function RegisterSettingsView({ defaults, canManage }: { defaults: { openingFloat: number; varianceAlert: number }; canManage: boolean }) {
+  const [float, setFloat] = useState(String(defaults.openingFloat));
+  const [alert, setAlert] = useState(String(defaults.varianceAlert));
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true); setError(null);
+    const res = await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ registerOpeningFloat: Number(float), registerVarianceAlert: Number(alert) }) });
+    const d = await res.json() as { error?: string };
+    setBusy(false);
+    if (res.ok) setNotice("Saved."); else setError(d.error ?? "Could not save.");
+  };
+  if (!canManage) return <div className="panel empty-panel"><div className="empty"><strong>Administrators only</strong><p>Register policy changes require an administrator.</p></div></div>;
+  return <div className="panel purchase-form-panel"><div className="toolbar"><strong>Register defaults</strong></div>
+    <div className="form-grid">
+      <label>Default opening float (USD)<input type="number" min="0" step="0.01" value={float} onChange={e => setFloat(e.target.value)}/></label>
+      <label>Variance alert threshold (USD)<input type="number" min="0" step="0.01" value={alert} onChange={e => setAlert(e.target.value)}/></label>
+    </div>
+    {notice && <p className="checkout-success success-banner" role="status">{notice}</p>}
+    {error && <p className="field-error" role="alert">{error}</p>}
+    <div className="modal-actions"><button className="primary-button" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save settings"}</button></div>
+  </div>;
+}
 
 /** Expenses hub: real expense ledger (shared with Reports/Finance), recurring engine, category stats. */
 function ExpensesHub({ role }: { role: StaffRole }) {
@@ -1423,7 +1601,7 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && query.trim()) { e.preventDefault(); const t = query.trim(); if (/^#?inv/i.test(t)) { setOrderSearch(t.replace(/^#/, "")); navigate("Transactions"); } else { navigate("Products"); setQuery(t); } } }} placeholder="Search products, orders..."/><kbd className="search-kbd">Ctrl K</kbd></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} methods={(settings.paymentMethods ?? []).filter(m => m.enabled).map(m => m.name)}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Payments" ? <PaymentsHub sales={sales} role={session.role}/> : active === "Expenses" ? <ExpensesHub role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} methods={(settings.paymentMethods ?? []).filter(m => m.enabled).map(m => m.name)}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Payments" ? <PaymentsHub sales={sales} role={session.role}/> : active === "Expenses" ? <ExpensesHub role={session.role}/> : active === "Cash Register" ? <RegisterHub sales={sales} role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }

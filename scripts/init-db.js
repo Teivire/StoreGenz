@@ -324,6 +324,41 @@ const validators = {
         createdAt: { bsonType: "string" }
       }
     }
+  },
+  register_shifts: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "id", "openedBy", "openedAt", "openingFloat"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        id: { bsonType: "string", pattern: "^SHF-\\d+$" },
+        openedBy: { bsonType: "string", minLength: 1 },
+        openedAt: { bsonType: "string" },
+        openingFloat: { bsonType: "number", minimum: 0 },
+        closedBy: { bsonType: "string" },
+        closedAt: { bsonType: "string" },
+        closingCount: { bsonType: "number", minimum: 0 },
+        expectedCash: { bsonType: "number" },
+        variance: { bsonType: "number" },
+        note: { bsonType: "string", maxLength: 200 }
+      }
+    }
+  },
+  cash_movements: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "id", "shiftId", "direction", "amount", "reason", "by", "createdAt"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        id: { bsonType: "string", pattern: "^MOV-\\d+$" },
+        shiftId: { bsonType: "string", minLength: 1 },
+        direction: { enum: ["in", "out"] },
+        amount: { bsonType: "number", minimum: 0.01 },
+        reason: { bsonType: "string", minLength: 1, maxLength: 120 },
+        by: { bsonType: "string", minLength: 1 },
+        createdAt: { bsonType: "string" }
+      }
+    }
   }
 };
 
@@ -388,6 +423,14 @@ const indexes = {
   ],
   recurring_expenses: [
     { key: { active: 1, nextRun: 1 }, name: "active_1_nextRun_1" }
+  ],
+  register_shifts: [
+    // Exactly one open shift at a time — enforced by the database, not just checks.
+    { key: { closedAt: 1 }, name: "unique_open_shift", unique: true, partialFilterExpression: { closedAt: { $exists: false } } },
+    { key: { openedAt: -1 }, name: "openedAt_-1" }
+  ],
+  cash_movements: [
+    { key: { shiftId: 1, createdAt: -1 }, name: "shiftId_1_createdAt_-1" }
   ]
 };
 

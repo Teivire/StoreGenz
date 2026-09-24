@@ -11,6 +11,7 @@ export type PublicStaff = { name: string; role: StaffRole; permissions: string; 
 /** Public profile plus the server-side sign-in time of the active session. */
 export type SessionProfile = PublicStaff & { signedInAt: Date };
 export type Sale = {
+  refundedAt?: string;   // ISO — when the refund happened (cash-window math)
   id: string;
   customer: string;
   date: string;
@@ -30,7 +31,7 @@ export type StoredSale = Sale & { _id: string; createdAt: Date; /** Subtotal −
 export type StoredStaffLegacy = StaffMember & { _id: string };
 /** Single-store settings: identity used by the sidebar, login screen, and printed invoices. */
 export type PaymentMethodSetting = { name: string; enabled: boolean };
-export type StoreSettings = { name: string; location: string; receiptFooter: string; currency: string; paymentMethods?: PaymentMethodSetting[] };
+export type StoreSettings = { name: string; location: string; receiptFooter: string; currency: string; paymentMethods?: PaymentMethodSetting[]; registerOpeningFloat?: number; registerVarianceAlert?: number };
 export type StoredSettings = StoreSettings & { _id: "settings" };
 
 /** Stock movement ledger: every stock change with who/why, newest-first reads. */
@@ -73,6 +74,34 @@ export type RecurringExpense = {
   createdAt: string;     // ISO
 };
 export type StoredRecurringExpense = RecurringExpense & { _id: string };
+
+/** Cash register shift: open with a counted float, close with a counted drawer; every
+ *  cash movement in between is recomputable from the ledger, so variances are honest. */
+export type RegisterShift = {
+  id: string;            // "SHF-<n>"
+  openedBy: string;
+  openedAt: string;      // ISO
+  openingFloat: number;  // counted cash in drawer at open
+  closedBy?: string;
+  closedAt?: string;     // ISO
+  closingCount?: number; // counted cash in drawer at close
+  expectedCash?: number; // server-computed at close: float + cash sales − cash refunds ± cash movements
+  variance?: number;     // closingCount − expectedCash
+  note?: string;
+};
+export type StoredRegisterShift = RegisterShift & { _id: string };
+
+/** Cash movement inside a shift (manager-only): tip-out, bank drop, petty cash. */
+export type CashMovement = {
+  id: string;            // "MOV-<n>"
+  shiftId: string;
+  direction: "in" | "out";
+  amount: number;
+  reason: string;
+  by: string;
+  createdAt: string;     // ISO
+};
+export type StoredCashMovement = CashMovement & { _id: string };
 
 /** Purchase order: supplier delivery, received into stock via the movement ledger. */
 export type PurchaseLine = { sku: string; name: string; qty: number; cost: number };
@@ -272,6 +301,14 @@ export async function getCustomerPaymentsCollection() {
 
 export async function getRecurringExpensesCollection() {
   return (await getDb()).collection<StoredRecurringExpense>("recurring_expenses");
+}
+
+export async function getRegisterShiftsCollection() {
+  return (await getDb()).collection<StoredRegisterShift>("register_shifts");
+}
+
+export async function getCashMovementsCollection() {
+  return (await getDb()).collection<StoredCashMovement>("cash_movements");
 }
 
 const DEFAULT_SETTINGS: StoreSettings = {

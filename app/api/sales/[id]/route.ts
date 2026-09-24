@@ -19,7 +19,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     // Refunded restocks, so concurrent/double refunds can never restock twice.
     const transition = await sales.updateOne(
       { _id: id, status: { $ne: "Refunded" } },
-      { $set: { status: "Refunded", refundReason: reason } }
+      { $set: { status: "Refunded", refundReason: reason, refundedAt: new Date().toISOString() } }
     );
     if (transition.matchedCount === 0) return bad(`Sale ${id} is already refunded.`, 409);
 
