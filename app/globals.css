@@ -5,7 +5,7 @@
 @media(max-width:600px){.form-grid{grid-template-columns:1fr}.select-menu{left:0}}
 @media(max-width:1100px){.receipts-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:760px){.receipts-grid{grid-template-columns:1fr}.receipt-modal{width:100%}}
-@media(max-width:1100px){.sidebar{width:220px}.page-content{padding:28px 22px}.topbar{padding:0 22px}.stats-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:760px){.sidebar{position:fixed;z-index:4;inset:0 auto 0 0;transform:translateX(-100%);transition:transform .2s;width:260px}.sidebar-open{transform:translateX(0)}.sidebar-backdrop{position:fixed;z-index:3;inset:0;background:#17212b55}.mobile-menu,.mobile-close{display:grid;place-items:center;background:none;color:#526170}.mobile-menu{margin-right:12px}.topbar{height:62px;padding:0 16px}.breadcrumb{flex:1}.topbar-actions{gap:10px}.search{width:150px}.language{display:none}.page-content{padding:24px 16px}.page-heading{align-items:flex-start;gap:18px}.page-heading h1{font-size:23px}.stats-grid,.dashboard-grid,.pos-layout,.quick-grid{grid-template-columns:1fr}.picker-grid{grid-template-columns:repeat(2,1fr)}.panel{padding:17px}.table-wrap{margin-left:-17px;margin-right:-17px}.table-wrap th,.table-wrap td{padding-left:17px;padding-right:17px}.subnav{overflow:auto;white-space:nowrap}.toolbar{flex-wrap:wrap}.toolbar>strong{min-width:100%}.filter{flex:1;min-width:150px}.dashboard-grid{gap:16px}}@media(max-width:480px){.topbar-actions .search{display:none}.page-heading{display:block}.page-heading .primary-button{margin-top:16px}.stats-grid{gap:10px}.stat-card{padding:13px;gap:9px}.stat-body>strong{font-size:16px}.stat-body>span{font-size:10px}.change em{display:none}.picker-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:1100px){.sidebar{width:220px}.page-content{padding:28px 22px}.topbar{padding:0 22px}.stats-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:760px){.sidebar{position:fixed;z-index:4;inset:0 auto 0 0;transform:translateX(-100%);transition:transform .2s;width:260px}.sidebar-open{transform:translateX(0)}.sidebar-backdrop{position:fixed;z-index:3;inset:0;background:#17212b55}.mobile-menu,.mobile-close{display:grid;place-items:center;background:none;color:#526170}.mobile-menu{margin-right:12px}.topbar{height:62px;padding:0 16px}.breadcrumb{flex:1}.topbar-actions{gap:10px}.search{width:150px}.language{display:none}.page-content{padding:24px 16px}.page-heading{align-items:flex-start;gap:18px}.page-heading h1{font-size:23px}.stats-grid,.dashboard-grid,.pos-layout,.quick-grid{grid-template-columns:1fr}.picker-grid{grid-template-columns:repeat(2,1fr)}.panel{padding:17px}.table-wrap{margin-left:-17px;margin-right:-17px}.table-wrap th,.table-wrap td{padding-left:17px;padding-right:17px}.subnav{overflow:auto;white-space:nowrap}.toolbar{flex-wrap:wrap}.toolbar>strong{min-width:100%}.filter{flex:1;min-width:150px}.dashboard-grid{gap:16px}}@media(max-width:480px){.topbar-actions .search{display:none}.page-heading{display:block}.page-heading .primary-button{margin-top:16px}.stats-grid{gap:10px}.stats-grid.five{grid-template-columns:1fr 1fr}.stat-card{padding:13px;gap:9px}.stat-body>strong{font-size:16px}.stat-body>span{font-size:10px}.change em{display:none}.picker-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:760px){html,body{overflow-x:hidden}.table-wrap{max-width:100%;overflow-x:auto}}
 @media print {
   body { background: #fff; }
@@ -67,7 +67,7 @@
 .dash-export{display:flex;gap:8px;margin-left:auto}
 .stats-grid.five{grid-template-columns:repeat(5,1fr)}
 .method-list{display:flex;flex-direction:column;gap:14px;margin-top:18px}
-.method-row{display:grid;grid-template-columns:86px 1fr 48px;align-items:center;gap:10px}
+.method-row{display:grid;grid-template-columns:86px 1fr 62px 40px;align-items:center;gap:10px}
 .method-row>span{color:#566575;font-size:11px;font-weight:700}
 .method-row>strong{text-align:right;font-size:11px}
 .method-bar{height:8px;background:#f0f3f5;border-radius:5px;overflow:hidden}
@@ -100,5 +100,63 @@
 .metric-tabs{display:flex;gap:6px;margin:14px 0 4px}
 .metric-tabs button{padding:5px 12px;color:#687686;background:transparent;border:1px solid var(--line);border-radius:14px;font-size:10px;font-weight:700}
 .metric-tabs button.on{color:#168957;background:var(--pale);border-color:var(--pale)}
-.method-row{grid-template-columns:86px 1fr 62px 40px}
 .method-row em{color:var(--muted);font-size:10px;font-style:normal;text-align:right}
+
+/* ===== Fixed-viewport shell: topbar + sidebar stay put, page content scrolls inside ===== */
+html,body{height:100%}
+.app-shell{height:100vh}
+.sidebar{overflow-y:auto}
+.content{height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.page-content{flex:1;overflow-y:auto}
+@media(max-width:760px){.app-shell{height:auto}.content{height:auto;overflow:visible}.page-content{overflow:visible}}
+@media print{.app-shell,.content{height:auto;overflow:visible}.page-content{overflow:visible}}
+
+/* ===== Dashboard: compacted to fit one screen ===== */
+.page-content.dash{display:flex;flex-direction:column;gap:14px;padding:20px 28px 24px}
+.page-content.dash .page-heading{margin-bottom:0;align-items:center}
+.page-content.dash .eyebrow{margin-bottom:5px}
+.page-content.dash .page-heading h1{font-size:22px}
+.page-content.dash .page-heading .subtitle{margin-top:4px}
+.page-content.dash .stats-grid,.page-content.dash .dashboard-grid,.page-content.dash .dash-toolbar{margin-bottom:0}
+.page-content.dash .stat-card{padding:14px 16px;gap:11px}
+.page-content.dash .stat-icon{width:38px;height:38px}
+.page-content.dash .stat-body>strong{font-size:18px;margin:3px 0 5px}
+.page-content.dash .dashboard-grid{gap:14px}
+.page-content.dash .panel{padding:16px 18px}
+.page-content.dash .panel-header p{margin-top:3px}
+.page-content.dash .chart{height:158px}
+.page-content.dash .method-list{margin-top:12px;gap:11px}
+.page-content.dash .method-row{grid-template-columns:86px 1fr 56px 36px}
+.page-content.dash .table-panel{padding-bottom:16px}
+.page-content.dash .table-wrap{margin:12px -18px -16px;max-height:200px}
+.page-content.dash .table-wrap th{padding:9px 18px;position:sticky;top:0;z-index:1}
+.page-content.dash .table-wrap td{padding:10px 18px}
+.page-content.dash .stock-list{margin:10px 0}
+.page-content.dash .stock-item{padding:8px 0}
+.page-content.dash .stock-item .product-placeholder{width:30px;height:30px}
+
+/* Dashboard fills the viewport exactly: rows share available height, inner areas scroll */
+.page-content.dash{overflow:hidden}
+.page-content.dash .dashboard-grid{flex:1 1 0;min-height:0}
+.page-content.dash .dashboard-grid .panel{display:flex;flex-direction:column;min-height:0}
+.page-content.dash .panel .chart{flex:1;min-height:100px}
+.page-content.dash .table-wrap{max-height:none;flex:1;min-height:0}
+.page-content.dash .stock-list{flex:1;min-height:0;overflow-y:auto}
+.page-content.dash .method-list{flex:0}
+@media(max-width:1100px){.page-content.dash .stats-grid.five{grid-template-columns:repeat(5,1fr)}}
+@media(max-width:880px){.page-content.dash .stats-grid.five{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:760px){.page-content.dash{overflow:visible}.page-content.dash .dashboard-grid{flex:none}.page-content.dash .dashboard-grid .panel{display:block}.page-content.dash .table-wrap{max-height:60vh}}
+@media print{.page-content.dash{overflow:visible}.page-content.dash .dashboard-grid{flex:none}.page-content.dash .dashboard-grid .panel{display:block}.page-content.dash .table-wrap{max-height:none}}
+
+/* KPI cards must shrink below their content width; captions never wrap */
+.page-content.dash .stats-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+.page-content.dash .stat-card{min-width:0}
+.page-content.dash .stat-body{min-width:0}
+.page-content.dash .stat-body>strong{white-space:nowrap}
+.page-content.dash .change{white-space:nowrap}
+.page-content.dash .change em{overflow:hidden;text-overflow:ellipsis}
+.page-content.dash .stat-body>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Slim scrollbars for the fixed shell */
+.sidebar,.page-content{scrollbar-width:thin}
+.sidebar::-webkit-scrollbar,.page-content::-webkit-scrollbar{width:8px}
+.sidebar::-webkit-scrollbar-thumb,.page-content::-webkit-scrollbar-thumb{background:#d5dde3;border-radius:4px}

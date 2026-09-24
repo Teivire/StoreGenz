@@ -5,7 +5,7 @@ import {
   CircleDollarSign, ClipboardList, CreditCard, Download, FileBarChart, LayoutDashboard, LogOut, Menu,
   Package, Plus, Printer, ReceiptText, RotateCcw, Search, Settings, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Tag, Truck, Users, Wallet, X
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type Product = { name: string; sku: string; category: string; price: number; cost: number; stock: number; image?: string };
 const seedProducts: Product[] = [
@@ -129,13 +129,13 @@ export default function Home() {
     try {
       // all=1: full arrays — the dashboard/reports aggregates filter the complete
       // history client-side; the big Transactions table pages server-side instead.
-      const [pRes, sRes, sfRes, seRes] = await Promise.all([fetch("/api/products?all=1"), fetch("/api/sales?all=1"), fetch("/api/staff"), fetch("/api/settings")]);
+      const [pRes, sRes, sfRes, seRes] = await Promise.all([fetch("/api/products?all=1"), fetch("/api/sales?all=1"), fetch("/api/staff"), fetch("/api/settings", { credentials: "same-origin" })]);
       if (!pRes.ok || !sRes.ok) throw new Error("API unavailable");
-      const [p, s, sf, se] = await Promise.all([pRes.json(), sRes.json(), sfRes.json(), seRes.ok ? seRes.json() : null]);
+      const [p, s, sf, se] = await Promise.all([pRes.json(), sRes.json(), sfRes.ok ? sfRes.json() : null, seRes.ok ? seRes.json() : null]);
       if (!mountedRef.current || gen !== refreshGen.current) return;
       setCatalog(p as Product[]);
       setSales(s as Sale[]);
-      setStaff(sf as StaffMember[]);
+      if (sf) setStaff(sf as StaffMember[]);
       if (se) setSettings(se as StoreSettings);
       setDbOnline(true);
     } catch {
@@ -158,7 +158,7 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
-  const navigate = (label: string) => { setActive(label); setSidebarOpen(false); setQuery(""); };
+  const navigate = useCallback((label: string) => { setActive(label); setSidebarOpen(false); setQuery(""); }, []);
   // Shortcuts: Ctrl/Cmd+K focuses global search, Ctrl/Cmd+N opens the register.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -338,7 +338,7 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && query.trim()) { e.preventDefault(); const t = query.trim(); if (/^#?inv/i.test(t)) { setOrderSearch(t.replace(/^#/, "")); navigate("Transactions"); } else { navigate("Products"); setQuery(t); } } }} placeholder="Search products, orders..."/><kbd className="search-kbd">Ctrl K</kbd></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className="page-content">{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Transactions" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : active === "Transactions" ? "history" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Products" || active === "Categories" ? <Products key={active} catalog={catalog} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "categories" : "products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" ? <StockPage catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock}/> : active === "Cash Register" ? <Finance sales={sales}/> : active === "Reports" ? <Reports sales={sales} catalog={catalog}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Transactions" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : active === "Transactions" ? "history" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Products" || active === "Categories" ? <Products key={active} catalog={catalog} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "categories" : "products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" ? <StockPage catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock}/> : active === "Cash Register" ? <Finance sales={sales}/> : active === "Reports" ? <Reports sales={sales} catalog={catalog}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }
@@ -483,7 +483,7 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
     row.qty += l.qty; row.revenue += l.price * l.qty; row.cost += l.cost * l.qty;
     byProduct.set(l.sku, row);
   }
-  const topProducts = Array.from(byProduct.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+  const topProducts = Array.from(byProduct.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 4);
   const byStaff = new Map<string, { orders: number; sales: number; discounts: number; refunds: number; profit: number }>();
   for (const s of visible) {
     const who = s.servedBy ?? "Unattributed";
@@ -499,7 +499,7 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
     }
     byStaff.set(who, row);
   }
-  const staffRows = Array.from(byStaff.entries()).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.sales - a.sales);
+  const staffRows = Array.from(byStaff.entries()).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.sales - a.sales).slice(0, 5);
 
   // ---- Export data (current filter state) ----
   const exportRows = visible.map(s => ({
@@ -568,11 +568,11 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
     <section className="dashboard-grid">
       <div className="panel table-panel">
         <PanelHeader title="Recent transactions" sub="Latest sales activity across the store" action="View all" onAction={()=>navigate("Transactions")}/>
-        {sales.length===0 ? <div className="empty">No sales yet.</div> : <DataTable headers={["INVOICE","CUSTOMER","CASHIER","AMOUNT","PAYMENT","TIME","STATUS"]} rows={sales.slice(0,6).map(s=>[s.id,s.customer,s.servedBy??"—",money(saleTotal(s)),s.payment,s.date,s.status])}/>}
+        {sales.length===0 ? <div className="empty">No sales yet.</div> : <DataTable headers={["INVOICE","CUSTOMER","CASHIER","AMOUNT","PAYMENT","TIME","STATUS"]} rows={sales.slice(0,4).map(s=>[s.id,s.customer,s.servedBy??"—",money(saleTotal(s)),s.payment,s.date,s.status])}/>}
       </div>
       <div className="panel">
         <PanelHeader title="Low stock" sub="Products that need attention" action="View inventory" onAction={()=>navigate("Stock")}/>
-        {catalog.filter(p=>p.stock<10).length===0 ? <div className="empty">All products are well stocked.</div> : <div className="stock-list">{catalog.filter(p=>p.stock<10).sort((a,b)=>a.stock-b.stock).slice(0,6).map(p=>
+        {catalog.filter(p=>p.stock<10).length===0 ? <div className="empty">All products are well stocked.</div> : <div className="stock-list">{catalog.filter(p=>p.stock<10).sort((a,b)=>a.stock-b.stock).slice(0,4).map(p=>
           <div className="stock-item" key={p.sku}><div className="product-placeholder"><Package size={18}/></div><div className="stock-name"><strong>{p.name}</strong><span>{p.sku}</span></div><div className="stock-count"><strong className={p.stock===0?"critical":""}>{p.stock} units</strong><span className={`status ${p.stock===0?"refunded":"pending"}`}>{p.stock===0?"OUT OF STOCK":"LOW STOCK"}</span></div></div>)}</div>}
         <button className="outline-button" onClick={()=>navigate("Stock")}>View inventory <ArrowUpRight size={15}/></button>
       </div>
@@ -904,7 +904,7 @@ function ReceiptModal({ sale, onClose, onRefund, storeName, storeLocation, recei
 const ROLES = ["Administrator", "Manager", "Cashier"] as const;
 const PERMS = ["Full access", "POS + inventory", "POS access"] as const;
 
-function StaffPage({ staff, query, onQuery, onAdd, onUpdate, onDelete, canManage }: { staff: StaffMember[]; query: string; onQuery: (q: string) => void; onAdd: (m: StaffMember, pin: string, done?: (ok: boolean) => void) => void; onUpdate: (name: string, patch: Partial<StaffMember> & { pin?: string }, done?: (ok: boolean) => void) => void; onDelete: (name: string, done?: (ok: boolean) => void) => void; canManage: boolean }) {
+function StaffPage({ staff, query, onQuery, onAdd, onUpdate, onDelete, canManage, currentUser }: { staff: StaffMember[]; query: string; onQuery: (q: string) => void; onAdd: (m: StaffMember, pin: string, done?: (ok: boolean) => void) => void; onUpdate: (name: string, patch: Partial<StaffMember> & { pin?: string }, done?: (ok: boolean) => void) => void; onDelete: (name: string, done?: (ok: boolean) => void) => void; canManage: boolean; currentUser: string }) {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<StaffMember | null>(null);
   const [deleting, setDeleting] = useState<StaffMember | null>(null);
@@ -915,7 +915,7 @@ function StaffPage({ staff, query, onQuery, onAdd, onUpdate, onDelete, canManage
     {banner && <p className="checkout-success success-banner" role="status">{banner}</p>}
     <div className="panel table-panel"><div className="toolbar"><strong>{query ? `${rows.length} of ${staff.length} staff` : `${staff.length} staff`}</strong><div className="filter"><Search size={15}/><input placeholder="Search name, role, or status" value={query} onChange={e=>onQuery(e.target.value)}/>{query&&<button className="filter-clear" aria-label="Clear staff search" onClick={()=>onQuery("")}><X size={13}/></button>}</div><div className="select-wrap"><button className="select-button">{staff.filter(m=>m.status==="Active").length} active <ChevronDown size={14}/></button></div></div>
     {rows.length===0 ? <div className="empty">No staff match your search.</div> : <div className="table-wrap"><table><thead><tr>{["NAME","ROLE","PERMISSIONS","STATUS",""].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map(m=><tr key={m.name}>
-      <td><strong>{m.name}</strong></td><td>{m.role}</td><td>{m.permissions}</td><td><span className={`status ${m.status==="Inactive"?"refunded":m.role==="Administrator"?"":m.status==="Active"?"paid":"pending"}`}>{m.status}</span>{m.role==="Administrator"&&<em className="you-chip"> · you</em>}</td>
+      <td><strong>{m.name}</strong></td><td>{m.role}</td><td>{m.permissions}</td><td><span className={`status ${m.status==="Inactive"?"refunded":m.status==="Active"?"paid":"pending"}`}>{m.status}</span>{m.name===currentUser&&<em className="you-chip"> · you</em>}</td>
       <td><div className="row-actions">{canManage ? [<button key="e" className="text-button" onClick={()=>{setBanner(null);setEditing(m);}}>Edit</button>, m.role!=="Administrator" ? <button key="d" className="text-button danger" onClick={()=>{setBanner(null);setDeleting(m);}}>Delete</button> : null] : <span className="you-chip">view only</span>}</div></td>
     </tr>)}</tbody></table></div>}</div>
     {adding && <StaffFormModal onClose={()=>setAdding(false)} onSave={(m,pin,done)=>{onAdd(m,pin,ok=>{if(ok)setBanner(`${m.name} added to the team.`);done(ok);});}}/>}
@@ -932,7 +932,7 @@ function StaffFormModal({ initial, onClose, onSave }: { initial?: StaffMember; o
     const pin = form.pin.trim();
     if (!name) return setError("Staff name is required.");
     if (name.length > 80) return setError("Staff name is too long (max 80 characters).");
-    if (!/\d{4,6}/.test(pin)) return setError("PIN must be 4–6 digits.");
+    if (!/^\d{4,6}$/.test(pin)) return setError("PIN must be 4–6 digits.");
     onSave({ name, role: form.role, permissions: form.permissions, status: "Active" }, pin, ok => { if (ok) onClose(); else setError("Could not save this staff member — see the message at the top of the page."); });
   };
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => { setForm({ ...form, [k]: e.target.value }); setError(null); };
