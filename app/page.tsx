@@ -60,7 +60,7 @@ const statusClass = (s: SaleStatus) => s === "Refunded" ? "refunded" : s === "Pe
 const navGroups = [
   { title: "WORKSPACE", items: [["Dashboard", LayoutDashboard]] },
   { title: "SALES", items: [
-    ["POS / New Sale", ShoppingCart], ["Transactions", ReceiptText], ["Returns & Refunds", RotateCcw]
+    ["POS", ShoppingCart], ["Transactions", ReceiptText], ["Returns & Refunds", RotateCcw]
   ]},
   { title: "CATALOG", items: [["Products", Package], ["Categories", Tag]] },
   { title: "INVENTORY", items: [
@@ -78,7 +78,7 @@ const navGroups = [
 
 const money = (n: number) => `${n < 0 ? "-" : ""}$${Math.abs(n).toFixed(2)}`;
 const pageInfo: Record<string, { title: string; subtitle: string; action?: string }> = {
-  "POS / New Sale": { title: "Point of sale", subtitle: "Ring up sales, take payment, and print receipts" },
+  "POS": { title: "Point of sale", subtitle: "Ring up sales, take payment, and print receipts" },
   "Transactions": { title: "Transactions", subtitle: "Every sale, with receipts and refunds" },
   "Returns & Refunds": { title: "Returns & refunds", subtitle: "Process returns and review refund history" },
   "Products": { title: "Products", subtitle: "Manage your catalog, pricing, and categories" },
@@ -111,6 +111,9 @@ export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [signedInAt, setSignedInAt] = useState<Date | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [storeOpen, setStoreOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const [orderSearch, setOrderSearch] = useState("");
 
   const mountedRef = useRef(true);
   // React 18 StrictMode (dev) runs setup → cleanup → setup: the flag must be re-armed
@@ -154,7 +157,18 @@ export default function Home() {
   }, []);
 
   const navigate = (label: string) => { setActive(label); setSidebarOpen(false); setQuery(""); };
+  // Shortcuts: Ctrl/Cmd+K focuses global search, Ctrl/Cmd+N opens the register.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); searchRef.current?.focus(); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") { e.preventDefault(); navigate("POS"); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navigate]);
   const info = pageInfo[active];
+  // A global search starting with #INV hands the term to Transactions; anything else
+  // lands on Products with the filter prefilled (the shared query prop drives it).
   const me = staff.find(m => m.name === session?.name);
 
   // Mutating requests authenticate via the HttpOnly session cookie; the API enforces
@@ -308,13 +322,21 @@ export default function Home() {
     {sidebarOpen && <button className="sidebar-backdrop" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
     <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
       <div className="brand"><div className="brand-mark">{settings.name.charAt(0).toUpperCase()}</div><div><strong>{settings.name}</strong><span>POS SYSTEM</span></div><button className="mobile-close" onClick={() => setSidebarOpen(false)}><X size={19}/></button></div>
-      <button className="store-switcher"><div className="store-icon"><Store size={17}/></div><div><span>{settings.name}</span><small>{settings.location}</small></div><ChevronDown size={15}/></button>
+      <div className="store-wrap">
+        <button className="store-switcher" aria-label="Switch store" onClick={() => setStoreOpen(o => !o)}><div className="store-icon"><Store size={17}/></div><div><span>🏪 {settings.name}</span><small>{settings.location} store</small></div><ChevronDown size={15}/></button>
+        {storeOpen && <><button className="menu-backdrop" aria-label="Close store menu" onClick={() => setStoreOpen(false)}/><div className="store-menu">
+          <p className="store-menu-label">Switch store</p>
+          <button className="on" disabled><Store size={14}/> {settings.name} — {settings.location} <span>✓ current</span></button>
+          <p className="store-menu-note">Other locations appear here once added.</p>
+          {session.role === "Administrator" && <button onClick={() => { setStoreOpen(false); navigate("Settings"); }}><Plus size={14}/> Add store</button>}
+        </div></>}
+      </div>
       <nav className="nav-list">{navGroups.map(group => <div key={group.title}><p className="nav-label">{group.title}</p>{group.items.map(([label, Icon]) => <button key={label} onClick={() => navigate(label)} className={`nav-item ${active === label ? "nav-active" : ""}`}><Icon size={18}/><span>{label}</span></button>)}</div>)}</nav>
       <div className="sidebar-footer"><div className="help-card"><div className="help-icon">?</div><div><strong>Need help?</strong><span>View documentation</span></div></div><div className="profile-wrap"><div className="profile" role="button" tabIndex={0} aria-label={`View profile for ${session.name}`} onClick={() => setProfileOpen(o => !o)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setProfileOpen(o => !o); } }}><div className="avatar">{session.name.slice(0, 2).toUpperCase()}</div><div><strong>{session.name}</strong><span>{session.role}</span></div><ChevronUp size={14} className={`profile-chevron ${profileOpen ? "open" : ""}`}/></div>{profileOpen && <><button className="menu-backdrop" aria-label="Close profile" onClick={() => setProfileOpen(false)}/><div className="profile-popover" role="dialog" aria-label="Signed-in profile"><div className="profile-popover-head"><div className="avatar">{session.name.slice(0, 2).toUpperCase()}</div><div><strong>{session.name}</strong><span>{session.role}</span></div></div><dl className="profile-facts"><div><dt>Permissions</dt><dd>{me?.permissions ?? "—"}</dd></div><div><dt>Status</dt><dd>{me?.status ?? "Active"}</dd></div><div><dt>Signed in</dt><dd>{signedInAt ? signedInAt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—"}</dd></div></dl></div></>}</div><button className="logout-button" aria-label="Sign out" title={`Sign out ${session.name}`} onClick={() => { setSession(null); setProfileOpen(false); fetch("/api/auth/session", { method: "DELETE", credentials: "same-origin" }).catch(() => {}); navigate("Dashboard"); }}><LogOut size={15}/></button></div>
     </aside>
     <section className="content">
-      <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search anything..."/></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className="page-content">{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS / New Sale" || active === "Transactions" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS / New Sale" ? "pos" : active === "Transactions" ? "history" : "returns"} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Products" || active === "Categories" ? <Products key={active} catalog={catalog} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "categories" : "products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" ? <StockPage catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock}/> : active === "Cash Register" ? <Finance sales={sales}/> : active === "Reports" ? <Reports sales={sales} catalog={catalog}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && query.trim()) { e.preventDefault(); const t = query.trim(); if (/^#?inv/i.test(t)) { setOrderSearch(t.replace(/^#/, "")); navigate("Transactions"); } else { navigate("Products"); setQuery(t); } } }} placeholder="Search products, orders..."/><kbd className="search-kbd">Ctrl K</kbd></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
+      <div className="page-content">{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Transactions" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : active === "Transactions" ? "history" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Products" || active === "Categories" ? <Products key={active} catalog={catalog} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "categories" : "products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" ? <StockPage catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock}/> : active === "Cash Register" ? <Finance sales={sales}/> : active === "Reports" ? <Reports sales={sales} catalog={catalog}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }
@@ -361,6 +383,10 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [payment, setPayment] = useState("All payments");
   const [paymentOpen, setPaymentOpen] = useState(false);
+  // Trend-chart metric: revenue always, orders, and gross profit (managers+ only).
+  const [metric, setMetric] = useState<"revenue" | "orders" | "profit">("revenue");
+  const trendValue = (d: { revenue: number; orders: number; profit: number }) => metric === "revenue" ? d.revenue : metric === "orders" ? d.orders : d.profit;
+  const metricLabel = metric === "revenue" ? "Revenue" : metric === "orders" ? "Orders" : "Gross profit";
 
   const DAY = 86_400_000;
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
@@ -406,13 +432,13 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
   // ---- Sales trend: daily buckets for day ranges, monthly for all time ----
   const dated = counted.filter(s => s.createdAt);
   const undated = counted.length - dated.length;
-  const buckets = new Map<string, { label: string; revenue: number; sort: number }>();
+  const buckets = new Map<string, { label: string; revenue: number; orders: number; profit: number; sort: number }>();
   for (const s of dated) {
     const t = new Date(s.createdAt as string).getTime();
     const d = new Date(t);
     const key = range === "all" ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` : d.toDateString();
-    const row = buckets.get(key) ?? { label: "", revenue: 0, sort: t };
-    row.revenue += saleTotal(s);
+    const row = buckets.get(key) ?? { label: "", revenue: 0, orders: 0, profit: 0, sort: t };
+    row.revenue += saleTotal(s); row.orders += 1;
     buckets.set(key, row);
   }
   // Honest zero bars for day ranges (only "today" has a single bucket).
@@ -420,10 +446,24 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
     for (let i = 0; i < range; i++) {
       const d = new Date(todayStart.getTime() - ((range as 7 | 30) - 1 - i) * DAY);
       const key = d.toDateString();
-      if (!buckets.has(key)) buckets.set(key, { label: "", revenue: 0, sort: d.getTime() });
+      if (!buckets.has(key)) buckets.set(key, { label: "", revenue: 0, orders: 0, profit: 0, sort: d.getTime() });
     }
   }
   const trend = Array.from(buckets.values()).sort((a, b) => a.sort - b.sort);
+  // Per-bucket gross profit: each sale's profit lands in its timestamp's bucket.
+  const profitByBucket = new Map<string, number>();
+  for (const s of dated) {
+    const d = new Date(s.createdAt as string).getTime();
+    const dd = new Date(d);
+    const key = range === "all" ? `${dd.getFullYear()}-${String(dd.getMonth() + 1).padStart(2, "0")}` : dd.toDateString();
+    const saleCost = lineCost(s) * (category === "All categories" ? 1 : keptLines(s).length / Math.max(s.lines.length, 1));
+    profitByBucket.set(key, (profitByBucket.get(key) ?? 0) + (saleTotal(s) - saleCost));
+  }
+  for (const b of trend) {
+    const dd = new Date(b.sort);
+    const key = range === "all" ? `${dd.getFullYear()}-${String(dd.getMonth() + 1).padStart(2, "0")}` : dd.toDateString();
+    b.profit = Math.round((profitByBucket.get(key) ?? 0) * 100) / 100;
+  }
   for (const b of trend) {
     const d = new Date(b.sort);
     b.label = range === "all"
@@ -431,13 +471,14 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
       : range === 30 ? String(d.getDate()) : range === 7 ? d.toLocaleDateString("en-US", { weekday: "short" }) : d.toLocaleTimeString("en-US", { hour: "numeric" });
   }
   const labelEvery = trend.length > 16 ? 5 : 1;
-  const maxRevenue = Math.max(...trend.map(d => d.revenue), 1);
+  // Chart scale follows the selected metric (revenue/orders/profit).
+  const maxRevenue = Math.max(...trend.map(d => trendValue(d)), 1);
 
   // ---- Top products & staff performance ----
-  const byProduct = new Map<string, { name: string; qty: number; revenue: number }>();
+  const byProduct = new Map<string, { name: string; qty: number; revenue: number; cost: number }>();
   for (const s of counted) for (const l of keptLines(s)) {
-    const row = byProduct.get(l.sku) ?? { name: l.name, qty: 0, revenue: 0 };
-    row.qty += l.qty; row.revenue += l.price * l.qty;
+    const row = byProduct.get(l.sku) ?? { name: l.name, qty: 0, revenue: 0, cost: 0 };
+    row.qty += l.qty; row.revenue += l.price * l.qty; row.cost += l.cost * l.qty;
     byProduct.set(l.sku, row);
   }
   const topProducts = Array.from(byProduct.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
@@ -466,14 +507,19 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
   }));
   const hasCostData = catalog.some(p => p.cost > 0);
 
+  const cost = counted.reduce((sum, s) => sum + lineCost(s) * (category === "All categories" ? 1 : keptLines(s).length / Math.max(s.lines.length, 1)), 0);
+  const grossProfit = gross - cost;
+  const margin = gross > 0 ? Math.round((grossProfit / gross) * 1000) / 10 : 0;
+  const showProfit = canViewMoney(role);
+
   return <>
     <div className="page-heading">
       <div>
-        <p className="eyebrow">{new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }).toUpperCase()}</p>
-        <h1>Sales overview <span>👋</span></h1>
-        <p className="subtitle">Welcome back, {userName} — here&apos;s how the store is performing.</p>
+        <p className="eyebrow">TODAY · {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }).toUpperCase()}</p>
+        <h1>Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}, {userName} <span>👋</span></h1>
+        <p className="subtitle">Here&apos;s today&apos;s store performance.</p>
       </div>
-      <button className="primary-button" onClick={() => navigate("POS / New Sale")}><Plus size={18}/> New sale</button>
+      <button className="primary-button" onClick={() => navigate("POS")} title="Ctrl+N"><Plus size={18}/> New sale</button>
     </div>
 
     <div className="dash-toolbar">
@@ -489,32 +535,50 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
     </div>
 
     <section className="stats-grid five">
-      <Stat label="Total" value={money(gross)} change={range === "today" ? "today so far" : "gross sales"} caption={rangeLabel.toLowerCase()} icon={CircleDollarSign} tone="green"/>
+      <Stat label="Sales" value={money(gross)} change={`avg ${money(counted.length ? Math.round(gross / counted.length * 100) / 100 : 0)}`} caption={rangeLabel.toLowerCase()} icon={CircleDollarSign} tone="green"/>
       <Stat label="Orders" value={String(counted.length)} change={`${units} items sold`} caption={rangeLabel.toLowerCase()} icon={ShoppingCart} tone="blue"/>
-      <Stat label="Items" value={String(units)} change={`${counted.length} orders`} caption={rangeLabel.toLowerCase()} icon={Package} tone="purple"/>
       <Stat label="Refunds" value={money(refundedAmount)} change={`${refunds.length} refund${refunds.length===1?"":"s"}`} caption={rangeLabel.toLowerCase()} icon={ArrowDownRight} tone="orange" negative={refunds.length>0}/>
       <Stat label="Net sales" value={money(net)} change="gross minus refunds" caption={rangeLabel.toLowerCase()} icon={ArrowUpRight} tone="green" negative={net<0}/>
+      {showProfit && <Stat label="Gross profit" value={money(Math.round(grossProfit * 100) / 100)} change={hasCostData ? `${margin}% margin` : "no costs set"} caption={rangeLabel.toLowerCase()} icon={Wallet} tone="purple" negative={grossProfit<0}/>}
     </section>
 
     <section className="dashboard-grid">
       <div className="panel">
-        <PanelHeader title="Sales trend" sub={`Revenue per ${range === "all" ? "month" : "day"} — ${rangeLabel.toLowerCase()}, refunds excluded`}/>
-        <div className="chart"><div className="y-axis"><span>{money(maxRevenue)}</span><span>{money(maxRevenue*0.75)}</span><span>{money(maxRevenue*0.5)}</span><span>{money(maxRevenue*0.25)}</span><span>{money(0)}</span></div>
+        <PanelHeader title="Sales trend" sub={`${metricLabel} per ${range === "all" ? "month" : "day"} — ${rangeLabel.toLowerCase()}, refunds excluded`}/>
+        <div className="metric-tabs" role="tablist" aria-label="Chart metric">
+          <button role="tab" aria-selected={metric==="revenue"} className={metric==="revenue"?"on":""} onClick={()=>setMetric("revenue")}>Revenue</button>
+          <button role="tab" aria-selected={metric==="orders"} className={metric==="orders"?"on":""} onClick={()=>setMetric("orders")}>Orders</button>
+          {showProfit && <button role="tab" aria-selected={metric==="profit"} className={metric==="profit"?"on":""} onClick={()=>setMetric("profit")}>Profit</button>}
+        </div>
+        <div className="chart"><div className="y-axis"><span>{metric === "orders" ? String(maxRevenue) : money(maxRevenue)}</span><span>{metric === "orders" ? String(Math.round(maxRevenue*0.75)) : money(maxRevenue*0.75)}</span><span>{metric === "orders" ? String(Math.round(maxRevenue*0.5)) : money(maxRevenue*0.5)}</span><span>{metric === "orders" ? String(Math.round(maxRevenue*0.25)) : money(maxRevenue*0.25)}</span><span>{metric === "orders" ? "0" : money(0)}</span></div>
           <div className="chart-area"><div className="grid-lines">{[1,2,3,4].map(x=><i key={x}/>)}
-            <div className="bars">{trend.map((d,i)=><div className="bar-group" key={i}><div className="bar revenue-bar" style={{height:`${(d.revenue/maxRevenue)*100}%`}}/><span>{i % labelEvery === 0 ? d.label : ""}</span></div>)}</div>
+            <div className="bars">{trend.map((d,i)=><div className="bar-group" key={i}><div className={`bar ${metric==="orders"?"orders-bar":"revenue-bar"}`} style={{height:`${(trendValue(d)/maxRevenue)*100}%`}}/><span>{i % labelEvery === 0 ? d.label : ""}</span></div>)}</div>
           </div></div></div>
         {undated > 0 && <p className="form-intro">{undated} sale{undated===1?"":"s"} without timestamps can&apos;t be placed on the trend chart.</p>}
       </div>
       <div className="panel">
         <PanelHeader title="Payment methods" sub={`Share of ${rangeLabel.toLowerCase()} sales`}/>
         {methodRows.length===0 ? <div className="empty">No sales in this range.</div> : <div className="method-list">{methodRows.map(m=>
-          <div className="method-row" key={m.method}><span>{m.method}</span><div className="method-bar"><i style={{width:`${m.pct}%`}}/></div><strong>{m.pct}%</strong></div>)}</div>}
+          <div className="method-row" key={m.method}><span>{m.method}</span><div className="method-bar"><i style={{width:`${m.pct}%`}}/></div><strong>{money(m.value)}</strong><em>{m.pct}%</em></div>)}</div>}
       </div>
     </section>
 
     <section className="dashboard-grid">
       <div className="panel table-panel">
-        <PanelHeader title="Top products" sub="Best sellers in the current view"/>
+        <PanelHeader title="Recent transactions" sub="Latest sales activity across the store" action="View all" onAction={()=>navigate("Transactions")}/>
+        {sales.length===0 ? <div className="empty">No sales yet.</div> : <DataTable headers={["INVOICE","CUSTOMER","CASHIER","AMOUNT","PAYMENT","TIME","STATUS"]} rows={sales.slice(0,6).map(s=>[s.id,s.customer,s.servedBy??"—",money(saleTotal(s)),s.payment,s.date,s.status])}/>}
+      </div>
+      <div className="panel">
+        <PanelHeader title="Low stock" sub="Products that need attention" action="View inventory" onAction={()=>navigate("Stock")}/>
+        {catalog.filter(p=>p.stock<10).length===0 ? <div className="empty">All products are well stocked.</div> : <div className="stock-list">{catalog.filter(p=>p.stock<10).sort((a,b)=>a.stock-b.stock).slice(0,6).map(p=>
+          <div className="stock-item" key={p.sku}><div className="product-placeholder"><Package size={18}/></div><div className="stock-name"><strong>{p.name}</strong><span>{p.sku}</span></div><div className="stock-count"><strong className={p.stock===0?"critical":""}>{p.stock} units</strong><span className={`status ${p.stock===0?"refunded":"pending"}`}>{p.stock===0?"OUT OF STOCK":"LOW STOCK"}</span></div></div>)}</div>}
+        <button className="outline-button" onClick={()=>navigate("Stock")}>View inventory <ArrowUpRight size={15}/></button>
+      </div>
+    </section>
+
+    <section className="dashboard-grid">
+      <div className="panel table-panel">
+        <PanelHeader title="Top products" sub="Best sellers in the current view" action="View all" onAction={()=>navigate("Reports")}/>
         {topProducts.length===0 ? <div className="empty">No sales in this range.</div> : <DataTable headers={["PRODUCT","UNITS","REVENUE"]} rows={topProducts.map(r=>[r.name,String(r.qty),money(r.revenue)])}/>}
       </div>
       <div className="panel table-panel">
@@ -705,10 +769,10 @@ function StockPage({ catalog, canManage, onAdjust }: { catalog: Product[]; canMa
 
 type SalesTab = "pos" | "history" | "returns";
 
-function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, receiptFooter, currency, role, initialTab }: { catalog: Product[]; sales: Sale[]; onRecord: (lines: SaleLine[], payment: SalePayment, done?: (ok: boolean, sale?: Sale) => void) => void; onRefund: (id: string, reason: string, done?: (ok: boolean) => void) => void; storeName: string; storeLocation: string; receiptFooter: string; currency: string; role: StaffRole; initialTab: SalesTab }) {
+function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, receiptFooter, currency, role, initialTab, initialHistoryQuery }: { catalog: Product[]; sales: Sale[]; onRecord: (lines: SaleLine[], payment: SalePayment, done?: (ok: boolean, sale?: Sale) => void) => void; onRefund: (id: string, reason: string, done?: (ok: boolean) => void) => void; storeName: string; storeLocation: string; receiptFooter: string; currency: string; role: StaffRole; initialTab: SalesTab; initialHistoryQuery?: string }) {
   const [tab, setTab] = useState<SalesTab>(initialTab);
   const [cardsView, setCardsView] = useState(false);
-  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyQuery, setHistoryQuery] = useState(initialHistoryQuery ?? "");
   const [cart, setCart] = useState<SaleLine[]>([]);
   const [productQuery, setProductQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -739,7 +803,7 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
     });
   };
 
-  return <><PageHeading title={pageInfo[tab === "pos" ? "POS / New Sale" : tab === "history" ? "Transactions" : "Returns & Refunds"].title} sub={pageInfo[tab === "pos" ? "POS / New Sale" : tab === "history" ? "Transactions" : "Returns & Refunds"].subtitle}/>
+  return <><PageHeading title={pageInfo[tab === "pos" ? "POS" : tab === "history" ? "Transactions" : "Returns & Refunds"].title} sub={pageInfo[tab === "pos" ? "POS" : tab === "history" ? "Transactions" : "Returns & Refunds"].subtitle}/>
   {refundDone && <p className="checkout-success success-banner" role="status">Refund for {refundDone} recorded successfully.</p>}
   {tab==="pos" && <div className="pos-layout"><div className="panel product-picker"><div className="toolbar"><h2>Choose products</h2><div className="filter"><Search size={15}/><input value={productQuery} onChange={e=>setProductQuery(e.target.value)} placeholder="Search products"/></div></div><div className="picker-grid">{visibleProducts.map(p=>{const inCart=cart.find(l=>l.sku===p.sku)?.qty??0;const left=p.stock-inCart;return <button key={p.sku} className="picker-card" disabled={left<=0} onClick={()=>{setJustCheckedOut(null);setCart(c=>c.some(l=>l.sku===p.sku)?c.map(l=>l.sku===p.sku?{...l,qty:l.qty+1}:l):[...c,toLine(p)]);}}><div className="picker-thumb">{p.image?<img src={p.image} alt=""/>:<div className="product-placeholder"><Package size={20}/></div>}</div><strong>{p.name}</strong><span>{money(p.price)} · {left<=0?"none left":"in stock: "+left}</span></button>;})}{visibleProducts.length===0&&<div className="empty">No products match your search.</div>}</div></div><div className="panel cart-panel"><div className="panel-header"><h2>Current sale</h2><span className="status paid">{cart.reduce((n,l)=>n+l.qty,0)} items</span></div>{cart.length===0?<div className="empty">Your cart is empty</div>:<div className="cart-lines">{cart.map((l,i)=><div className="cart-line" key={l.sku}><div><strong>{l.name}</strong><span>{money(l.price)} × {l.qty}</span></div><button aria-label={`Remove ${l.name}`} onClick={()=>setCart(c=>c.filter((_,idx)=>idx!==i))}><X size={14}/></button></div>)}</div>}<div className="cart-total"><span>Subtotal</span><strong>{money(total)}</strong></div>{justCheckedOut&&<p className="checkout-success" role="status">Sale {justCheckedOut.id} recorded.{justCheckedOut.changeDue ? ` Change due ${money(justCheckedOut.changeDue)}.` : ""}</p>}<button className="primary-button checkout" disabled={cart.length===0||busy} onClick={openPayment}>{busy ? "Charging…" : `Charge ${money(total)}`}</button></div></div>}
   {tab==="history" && <div className="panel table-panel"><div className="toolbar"><strong>{historyQuery ? `${historyMatches.length} of ${sales.length} sales` : `${sales.length} sales`}</strong><div className="filter"><Search size={15}/><input placeholder="Search invoice or customer" value={historyQuery} onChange={e=>setHistoryQuery(e.target.value)}/>{historyQuery&&<button className="filter-clear" aria-label="Clear sales search" onClick={()=>setHistoryQuery("")}><X size={13}/></button>}</div><button className="outline-button" onClick={()=>setCardsView(v=>!v)}>{cardsView?"Table view":"Card view"}</button></div>{historyMatches.length===0?<div className="empty">No sales match your search.</div>:cardsView?<div className="receipts-grid">{historyMatches.map(s=><div className="panel receipt-card" key={s.id}><div className="receipt-card-head"><strong>{s.id}</strong><span className={`status ${statusClass(s.status)}`}>{s.status}</span></div><p>{s.customer} · {s.date}</p><div className="receipt-card-total"><span>{itemCount(s)} items</span><strong>{money(saleTotal(s))}</strong></div><button className="outline-button" onClick={()=>setViewing(s)}>View receipt</button></div>)}</div>:<SalesTable sales={historyMatches} onView={setViewing} onRefund={startRefund}/>}</div>}

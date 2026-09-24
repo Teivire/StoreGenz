@@ -85,3 +85,20 @@
 .nav-list>div:first-child .nav-label{margin-top:0}
 .stock-grid{display:grid;grid-template-columns:minmax(0,1.9fr) minmax(300px,1fr);gap:20px;align-items:start}
 @media(max-width:1100px){.stock-grid{grid-template-columns:1fr}}
+
+/* Store selector menu, search kbd, metric tabs, method amounts */
+.store-wrap{position:relative}
+.store-menu{position:absolute;z-index:6;top:calc(100% + 8px);left:0;right:0;padding:8px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 34px #17212b26}
+.store-menu-label{margin:4px 8px 6px;color:#a3adb8;font-size:9px;font-weight:700;letter-spacing:1.1px}
+.store-menu-note{margin:4px 8px;color:var(--muted);font-size:10px}
+.store-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;text-align:left;color:#566575;font-size:11px;border-radius:6px}
+.store-menu button:hover:not(:disabled){background:var(--pale)}
+.store-menu button.on{color:#168957;background:var(--pale);font-weight:700}
+.store-menu button span{margin-left:auto;color:var(--green);font-size:10px}
+.search{position:relative}
+.search-kbd{position:absolute;right:8px;padding:1px 5px;border:1px solid var(--line);border-radius:4px;color:#a0abb6;font-size:9px;font-family:inherit;background:#fafbfc}
+.metric-tabs{display:flex;gap:6px;margin:14px 0 4px}
+.metric-tabs button{padding:5px 12px;color:#687686;background:transparent;border:1px solid var(--line);border-radius:14px;font-size:10px;font-weight:700}
+.metric-tabs button.on{color:#168957;background:var(--pale);border-color:var(--pale)}
+.method-row{grid-template-columns:86px 1fr 62px 40px}
+.method-row em{color:var(--muted);font-size:10px;font-style:normal;text-align:right}
