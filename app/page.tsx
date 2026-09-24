@@ -3,7 +3,7 @@
 import {
   ArrowDownRight, ArrowLeftRight, ArrowUpRight, Banknote, Bell, Box, Boxes, BriefcaseBusiness, Building2, ChevronDown, ChevronUp,
   CircleDollarSign, ClipboardList, CreditCard, Download, FileBarChart, LayoutDashboard, LogOut, Menu,
-  Package, Plus, Printer, ReceiptText, RotateCcw, Search, Settings, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Tag, Truck, Users, Wallet, X
+  Package, Plus, Printer, ReceiptText, RotateCcw, Search, Settings, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Tag, Truck, Upload, Users, Wallet, X
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -77,6 +77,311 @@ const navGroups = [
 ] as const;
 
 const money = (n: number) => `${n < 0 ? "-" : ""}$${Math.abs(n).toFixed(2)}`;
+/* ================= Hub pages: Transactions / Products / Stock / Reports ================= */
+
+/** An "honest placeholder" panel for modules that aren't built yet — says so plainly. */
+function SoonPanel({ title, what }: { title: string; what: string }) {
+  return <div className="panel empty-panel"><div className="empty"><strong>{title}</strong><p>{what}</p><span className="you-chip">Module not built yet — no invented data shown</span></div></div>;
+}
+
+/** Thin data rows for hub views fed straight from state (no server paging needed). */
+function HubTable({ headers, rows, empty }: { headers: string[]; rows: string[][]; empty: string }) {
+  if (rows.length === 0) return <div className="panel empty-panel"><div className="empty"><strong>{empty}</strong><p>Nothing to show yet.</p></div></div>;
+  return <div className="panel table-panel"><DataTable headers={headers} rows={rows}/></div>;
+}
+
+/** Transactions hub: the 11-view transaction ledger. */
+function TransactionsHub({ sales, onRefund, storeName, storeLocation, receiptFooter, currency, role, orderSearch }: {
+  sales: Sale[]; onRefund: (id: string, reason: string, done?: (ok: boolean) => void) => void;
+  storeName: string; storeLocation: string; receiptFooter: string; currency: string; role: StaffRole; orderSearch?: string;
+}) {
+  const tabs = ["All Transactions", "Sales", "Purchases", "Sales Returns", "Purchase Returns", "Payments", "Refunds", "Expenses", "Stock Adjustments", "Stock Transfers", "Cash Drawer"] as const;
+  const [tab, setTab] = useState<(typeof tabs)[number]>("All Transactions");
+  const [viewing, setViewing] = useState<Sale | null>(null);
+  const [refunding, setRefunding] = useState<Sale | null>(null);
+  const [refundNote, setRefundNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState(orderSearch ?? "");
+  const startRefund = (s: Sale) => { setViewing(null); setRefundNote(""); setRefunding(s); };
+  const confirmRefund = () => { if (!refunding || busy) return; setBusy(true); onRefund(refunding.id, refundNote, ok => { setBusy(false); setRefunding(null); }); };
+  const q = query.toLowerCase().trim();
+  const notRefunded = sales.filter(s => s.status !== "Refunded");
+  const refunded = sales.filter(s => s.status === "Refunded");
+  const pending = sales.filter(s => s.status === "Pending");
+  const refundTotal = refunded.reduce((n, s) => n + saleTotal(s), 0);
+  const cashSales = notRefunded.filter(s => s.payment === "Cash");
+  const nonCash = notRefunded.filter(s => s.payment !== "Cash");
+  // Sales with a stock-affecting manual adjustment ledger entry are reconciled from /api/movements below.
+  const byTab: Record<string, { headers: string[]; rows: string[][]; empty: string }> = {
+    "All Transactions": {
+      headers: ["INVOICE", "CUSTOMER", "DATE", "TYPE", "AMOUNT", "STATUS"],
+      rows: [...sales].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")).slice(0, 40).map(s => [s.id, s.customer, s.date, "Sale", money(saleTotal(s)), s.status]),
+      empty: "No transactions yet",
+    },
+    "Sales": {
+      headers: ["INVOICE", "CUSTOMER", "DATE", "PAYMENT", "AMOUNT", "STATUS"],
+      rows: notRefunded.slice(0, 40).map(s => [s.id, s.customer, s.date, s.payment, money(saleTotal(s)), s.status]),
+      empty: "No sales yet",
+    },
+    "Sales Returns": { headers: ["INVOICE", "CUSTOMER", "DATE", "AMOUNT", "REASON", "STATUS"], rows: refunded.map(s => [s.id, s.customer, s.date, money(saleTotal(s)), s.refundReason || "—", "Refunded"]), empty: "No sales returns yet" },
+    "Payments": { headers: ["INVOICE", "CUSTOMER", "METHOD", "DATE", "AMOUNT", "STATUS"], rows: notRefunded.map(s => [s.id, s.customer, s.payment, s.date, money(saleTotal(s)), s.status]), empty: "No payments yet" },
+    "Refunds": { headers: ["INVOICE", "CUSTOMER", "DATE", "AMOUNT", "REASON", "STATUS"], rows: refunded.map(s => [s.id, s.customer, s.date, money(saleTotal(s)), s.refundReason || "—", "Refunded"]), empty: "No refunds yet" },
+  };
+  const current = byTab[tab];
+  const rows = current ? current.rows.filter(r => r.join(" ").toLowerCase().includes(q)) : [];
+  return <>
+    <PageHeading title="Transactions" sub="The complete transaction ledger across every module"/>
+    <div className="subnav subnav-wrap">
+      {tabs.map(t => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => { setTab(t); setQuery(""); }}>{t}</button>)}
+    </div>
+    {current && <div className="panel table-panel"><div className="toolbar"><strong>{q ? `${rows.length} of ${current.rows.length} transactions` : `${current.rows.length} ${tab.toLowerCase()}`}</strong><div className="filter"><Search size={15}/><input placeholder="Search this view" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button className="filter-clear" aria-label="Clear search" onClick={()=>setQuery("")}><X size={13}/></button>}</div></div>
+      {rows.length === 0 ? <div className="empty">{q ? "Nothing matches your search." : current.empty}</div> : <DataTable headers={current.headers} rows={rows}/>}
+    </div>}
+    {tab === "Purchases" && <SoonPanel title="Purchases" what="Purchase orders will appear here once the Purchases module is built — supplier deliveries will then feed stock and expenses automatically."/>}
+    {tab === "Purchase Returns" && <SoonPanel title="Purchase returns" what="Returning goods to suppliers will be recorded here, linked to their purchase orders."/>}
+    {tab === "Expenses" && <SoonPanel title="Expenses" what="Expense records (rent, utilities, supplies) will appear here once the Expenses module is built."/>}
+    {tab === "Stock Adjustments" && <SoonPanel title="Stock adjustments" what="Every manual stock correction is being recorded in the movement ledger — the Stock → Stock Movement view shows them today."/>}
+    {tab === "Stock Transfers" && <SoonPanel title="Stock transfers" what="Moving stock between locations will be recorded here once multi-store locations exist."/>}
+    {tab === "Cash Drawer" && <div className="panel table-panel"><div className="toolbar"><strong>Cash drawer — today</strong></div>
+      <DataTable headers={["ITEM", "AMOUNT", "DETAIL"]} rows={[
+        ["Cash sales", money(cashSales.reduce((n, s) => n + saleTotal(s), 0)), `${cashSales.length} cash sale${cashSales.length === 1 ? "" : "s"}`],
+        ["Non-cash takings", money(nonCash.reduce((n, s) => n + saleTotal(s), 0)), "ABA Pay + Credit"],
+        ["Refunds (all methods)", money(-refundTotal), `${refunded.length} refund${refunded.length === 1 ? "" : "s"}`],
+        ["Expected cash in drawer", money(cashSales.reduce((n, s) => n + saleTotal(s), 0) - refundTotal), "cash sales minus refunds"],
+      ]}/></div>}
+    {viewing && <ReceiptModal sale={viewing} onClose={()=>setViewing(null)} onRefund={startRefund} storeName={storeName} storeLocation={storeLocation} receiptFooter={receiptFooter} currency={currency}/>}
+    {refunding && <div className="modal-backdrop" onClick={()=>setRefunding(null)}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>Refund {refunding.id}</h2><button aria-label="Close refund dialog" onClick={()=>setRefunding(null)}><X size={18}/></button></div><p className="refund-summary">Refunding <strong>{money(saleTotal(refunding))}</strong> ({itemCount(refunding)} items) from <strong>{refunding.customer}</strong> back via {refunding.payment}.</p><label>Reason<textarea autoFocus placeholder="e.g. Damaged goods, customer changed their mind" value={refundNote} onChange={e=>setRefundNote(e.target.value)}/></label><div className="modal-actions"><button className="outline-button" onClick={()=>setRefunding(null)}>Cancel</button><button className="primary-button" disabled={busy} onClick={confirmRefund}>{busy ? "Refunding…" : `Confirm refund ${money(saleTotal(refunding))}`}</button></div></div></div>}
+  </>;
+}
+
+/** Products hub: catalog management with add/edit/import/export. */
+function ProductsHub({ catalog, sales, query, onQuery, onUpsert, onDelete, onAdjust, canManage, initialAdd, initialTab }: {
+  catalog: Product[]; sales: Sale[]; query: string; onQuery: (q: string) => void;
+  onUpsert: (p: Product, done?: (ok: boolean) => void) => void; onDelete: (sku: string, done?: (ok: boolean) => void) => void;
+  onAdjust: (sku: string, delta: number) => void; canManage: boolean; initialAdd?: boolean; initialTab?: "All Products" | "Categories";
+}) {
+  const tabs = ["All Products", "Add Product", "Categories", "Brands", "Units", "Variants", "Barcode", "Price Lists", "Import / Export"] as const;
+  const [tab, setTab] = useState<(typeof tabs)[number]>(initialTab ?? "All Products");
+  const [formOpen, setFormOpen] = useState(initialAdd === true && canManage);
+  const [editing, setEditing] = useState<Product | null>(null);
+  const [deleting, setDeleting] = useState<Product | null>(null);
+  const [banner, setBanner] = useState<string | null>(null);
+  const q = query.toLowerCase().trim();
+  const rows = catalog.filter(p => `${p.name} ${p.sku} ${p.category}`.toLowerCase().includes(q));
+  const soldBySku = new Map<string, number>();
+  for (const s of sales) if (s.status !== "Refunded") for (const l of s.lines) soldBySku.set(l.sku, (soldBySku.get(l.sku) ?? 0) + l.qty);
+  const exportCSV = () => {
+    const head = "Name,SKU,Category,Price,Cost,Stock,Sold\n";
+    const body = catalog.map(p => [csvCell(p.name), csvCell(p.sku), csvCell(p.category), p.price.toFixed(2), p.cost.toFixed(2), String(p.stock), String(soldBySku.get(p.sku) ?? 0)].join(",")).join("\n");
+    download(`products-${new Date().toISOString().slice(0, 10)}.csv`, "text/csv;charset=utf-8", head + body);
+  };
+  const importCSV = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const lines = String(reader.result).split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) return setBanner(null) as void;
+      const sep = lines[0].includes(";") ? ";" : ",";
+      const idx = (h: string) => lines[0].toLowerCase().split(sep).findIndex(c => c.trim().replace(/^"|"$/g, "") === h);
+      const iName = idx("name"), iSku = idx("sku"), iCat = idx("category"), iPrice = idx("price"), iCost = idx("cost"), iStock = idx("stock");
+      if (iName < 0 || iSku < 0) return setBanner("Import failed — the CSV needs at least Name and SKU columns.");
+      const cell = (r: string[], i: number) => (r[i] ?? "").trim().replace(/^"|"$/g, "");
+      let ok = 0, failed = 0;
+      const next = () => {
+        if (ok + failed === lines.length - 1) setBanner(`Import finished — ${ok} product${ok === 1 ? "" : "s"} imported${failed ? `, ${failed} skipped (bad rows)` : ""}.`);
+      };
+      lines.slice(1).forEach(raw => {
+        const r = raw.split(sep);
+        const name = cell(r, iName), sku = cell(r, iSku).toUpperCase();
+        const price = parseFloat(cell(r, iPrice)), cost = cell(r, iCost) === "" ? 0 : parseFloat(cell(r, iCost));
+        const stock = cell(r, iStock) === "" ? 0 : parseInt(cell(r, iStock), 10);
+        if (!name || !sku || !Number.isFinite(price) || price <= 0 || !Number.isFinite(cost) || cost < 0 || !Number.isFinite(stock) || stock < 0) { failed++; next(); return; }
+        const p: Product = { name, sku, category: cell(r, iCat) || "Uncategorized", price, cost, stock };
+        onUpsert(p, ok2 => { ok2 ? ok++ : failed++; next(); });
+      });
+    };
+    reader.readAsText(file);
+  };
+  return <>
+    <PageHeading title="Products" sub="Manage your catalog, pricing, and categories" action={canManage && tab === "All Products" ? "Add product" : undefined} onAction={() => { setBanner(null); setFormOpen(true); }}/>
+    <div className="subnav subnav-wrap">
+      {tabs.map(t => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => { setTab(t); setBanner(null); }}>{t}</button>)}
+    </div>
+    {banner && <p className="checkout-success success-banner" role="status">{banner}</p>}
+    {tab === "All Products" && <Products catalog={catalog} query={query} onQuery={onQuery} onUpsert={onUpsert} onDelete={onDelete} onAdjust={onAdjust} canManage={canManage} embed/>}
+    {tab === "Add Product" && (canManage
+      ? <Products catalog={catalog} query="" onQuery={() => {}} onUpsert={onUpsert} onDelete={onDelete} onAdjust={onAdjust} canManage embed initialAdd/>
+      : <div className="panel empty-panel"><div className="empty"><strong>Managers only</strong><p>Ask a manager or administrator to add products.</p></div></div>)}
+    {tab === "Categories" && <CategoriesView catalog={catalog} canManage={canManage}/>}
+    {tab === "Brands" && <SoonPanel title="Brands" what="Brand management will live here — attach a brand to each product and filter the catalog by it."/>}
+    {tab === "Units" && <SoonPanel title="Units" what="Units of measure (pcs, kg, box) will be defined here and used on purchase orders and stock counts."/>}
+    {tab === "Variants" && <SoonPanel title="Variants" what="Product variants (size, color) will be managed here — one parent product, many sellable variants."/>}
+    {tab === "Barcode" && <SoonPanel title="Barcode" what="Barcode assignment and label printing will be configured here for scanner-ready checkouts."/>}
+    {tab === "Price Lists" && <SoonPanel title="Price lists" what="Customer-specific or wholesale price lists will be managed here."/>}
+    {tab === "Import / Export" && <div className="panel"><div className="panel-header"><h2>Import / export catalog</h2></div>
+      <p className="form-intro">Export the full catalog to CSV (opens in Excel), or import products from a CSV with columns <code>Name,SKU,Category,Price,Cost,Stock</code>. Existing SKUs are updated, new ones are created.</p>
+      <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+        <button className="outline-button" onClick={exportCSV}><Download size={14}/> Export CSV</button>
+        <label className="outline-button image-label" style={{ display: "inline-flex" }}><Upload size={14}/> Import CSV<input type="file" accept=".csv,text/csv" style={{ display: "none" }} onChange={e => { importCSV(e.target.files?.[0]); e.target.value = ""; }}/></label>
+      </div>
+    </div>}
+    {formOpen && <ProductFormModal catalog={catalog} initial={editing} onClose={() => { setFormOpen(false); setEditing(null); }} onSave={(p, done) => { onUpsert(p, ok => { if (ok) setBanner(`${p.name} saved.`); done(ok); }); }}/>}
+    {deleting && <div className="modal-backdrop" onClick={() => setDeleting(null)}><div className="modal" onClick={e => e.stopPropagation()}><div className="modal-header"><h2>Delete product</h2><button aria-label="Close delete dialog" onClick={() => setDeleting(null)}><X size={18}/></button></div><p className="refund-summary">Delete <strong>{deleting.name}</strong> ({deleting.sku}) from the catalog? This cannot be undone.</p><div className="modal-actions"><button className="outline-button" onClick={() => setDeleting(null)}>Cancel</button><button className="primary-button danger-button" onClick={() => { onDelete(deleting.sku, ok => { if (ok) setBanner(`${deleting.name} deleted.`); }); setDeleting(null); }}>Delete product</button></div></div></div>}
+  </>;
+}
+
+/** Stock hub: 7 views over the live catalog and the movement ledger. */
+function StockHub({ catalog, canManage, onAdjust }: { catalog: Product[]; canManage: boolean; onAdjust: (sku: string, delta: number) => void }) {
+  const tabs = ["Stock Overview", "Stock Movement", "Stock Adjustment", "Stock Transfer", "Low Stock", "Out of Stock", "Stock Count"] as const;
+  const [tab, setTab] = useState<(typeof tabs)[number]>("Stock Overview");
+  const [movements, setMovements] = useState<{ sku: string; productName: string; delta: number; reason: string; note: string; by: string; refId: string; createdAt: string }[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/movements?limit=200").then(r => r.ok ? r.json() : Promise.reject()).then(d => { if (alive) setMovements(d as typeof movements); }).catch(() => { if (alive) setMovements([]); });
+    return () => { alive = false; };
+  }, []);
+  const low = catalog.filter(p => p.stock > 0 && p.stock < 10);
+  const out = catalog.filter(p => p.stock === 0);
+  const stockStatus = (stock: number) => stock === 0 ? ["Out of stock", "refunded"] as const : stock < 10 ? ["Low stock", "pending"] as const : ["Healthy", "paid"] as const;
+  const mv = (reason: string) => (movements ?? []).filter(m => m.reason === reason);
+  const adjustRows = mv("adjustment");
+  const transferRows = [...mv("transfer-in"), ...mv("transfer-out")];
+  const countRows = catalog.map(p => {
+    const counted = movements?.filter(m => m.sku === p.sku).reduce((n, m) => n + m.delta, 0) ?? 0;
+    return [p.name, p.sku, String(p.stock), String(counted), counted === p.stock ? "OK" : "Variance"]; 
+  });
+  return <>
+    <PageHeading title="Stock" sub="Monitor and adjust stock levels across your store"/>
+    <div className="subnav subnav-wrap">
+      {tabs.map(t => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t}</button>)}
+    </div>
+    {tab === "Stock Overview" && <StockPage catalog={catalog} canManage={canManage} onAdjust={onAdjust} embed/>}
+    {tab === "Stock Movement" && <div className="panel table-panel"><div className="toolbar"><strong>{movements ? `${movements.length} movements` : "Loading ledger…"}</strong></div>
+      {!movements ? <div className="empty">Loading…</div> : movements.length === 0 ? <div className="empty">No movements recorded yet — sales, refunds, and adjustments will appear here.</div>
+        : <div className="table-wrap"><table><thead><tr>{["PRODUCT", "SKU", "CHANGE", "REASON", "REFERENCE", "BY", "WHEN"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+          {movements.map((m, i) => <tr key={i}><td><strong>{m.productName}</strong></td><td>{m.sku}</td><td><strong className={m.delta < 0 ? "" : ""}>{m.delta > 0 ? `+${m.delta}` : m.delta}</strong></td><td>{m.reason}</td><td>{m.refId || "—"}</td><td>{m.by}</td><td>{new Date(m.createdAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</td></tr>
+        )}</tbody></table></div>}
+    </div>}
+    {tab === "Stock Adjustment" && (canManage ? <StockAdjustment catalog={catalog} onAdjust={onAdjust} onDone={() => {}}/> : <div className="panel empty-panel"><div className="empty"><strong>Managers only</strong><p>Ask a manager or administrator to record stock adjustments.</p></div></div>)}
+    {tab === "Stock Transfer" && <SoonPanel title="Stock transfers" what="Transfers between locations will be recorded here with in/out ledger entries once multi-store exists."/>}
+    {tab === "Low Stock" && <HubTable headers={["PRODUCT", "SKU", "STOCK", "STATUS"]} empty="No low-stock products" rows={low.map(p => [p.name, p.sku, `${p.stock} units`, "Low stock"])}/>}
+    {tab === "Out of Stock" && <HubTable headers={["PRODUCT", "SKU", "STOCK", "STATUS"]} empty="Nothing is out of stock" rows={out.map(p => [p.name, p.sku, "0 units", "Out of stock"])}/>}
+    {tab === "Stock Count" && <div className="panel table-panel"><div className="toolbar"><strong>Expected vs recorded</strong></div>
+      {movements === null ? <div className="empty">Loading…</div> : <DataTable headers={["PRODUCT", "SKU", "CURRENT STOCK", "LEDGER NET", "MATCH"]} rows={countRows}/>}
+    </div>}
+  </>;
+}
+
+/** Reports hub: report groups with real computed views where data exists. */
+function ReportsHub({ sales, catalog, role }: { sales: Sale[]; catalog: Product[]; role: StaffRole }) {
+  const groups: { group: string; views: string[] }[] = [
+    { group: "Sales", views: ["Sales Overview", "Sales Transactions", "Sales by Product", "Sales by Category", "Sales by Customer", "Sales by Cashier"] },
+    { group: "Purchases", views: ["Purchase Summary", "Purchase by Product", "Purchase by Supplier", "Purchase Returns"] },
+    { group: "Inventory", views: ["Stock Summary", "Stock Movement", "Low Stock", "Out of Stock", "Stock Valuation", "Stock Adjustments"] },
+    { group: "Customers", views: ["Customer Summary", "Customer Sales", "Customer Balance", "Loyalty Points"] },
+    { group: "Suppliers", views: ["Supplier Summary", "Supplier Balance", "Supplier Payments"] },
+    { group: "Finance", views: ["Profit & Loss", "Payments", "Expenses", "Refunds", "Cash Flow"] },
+    { group: "Cash Register", views: ["Register Summary", "Shift Report", "Cash In / Out", "Cash Difference"] },
+    { group: "Staff", views: ["Staff Performance", "Cashier Sales", "Activity Log"] },
+  ];
+  const flat = groups.flatMap(g => g.views);
+  const [tab, setTab] = useState("Sales Overview");
+  const showMoney = canViewMoney(role);
+  const counted = sales.filter(s => s.status !== "Refunded");
+  const refunded = sales.filter(s => s.status === "Refunded");
+  const revenue = counted.reduce((n, s) => n + saleTotal(s), 0);
+  const cost = counted.reduce((n, s) => n + lineCost(s), 0);
+  const refundAmt = refunded.reduce((n, s) => n + saleTotal(s), 0);
+  const groupBy = (key: "customer" | "servedBy" | "category") => {
+    const m = new Map<string, { orders: number; sales: number }>();
+    for (const s of counted) for (const l of s.lines) {
+      const k = key === "category" ? (catalog.find(p => p.sku === l.sku)?.category ?? "Uncategorized") : key === "customer" ? s.customer : (s.servedBy ?? "Unattributed");
+      const row = m.get(k) ?? { orders: 0, sales: 0 };
+      row.orders += 1; row.sales += l.price * l.qty;
+      m.set(k, row);
+    }
+    return Array.from(m.entries()).map(([name, v]) => [name, String(v.orders), money(v.sales)] as string[]).sort((a, b) => parseFloat(b[2].replace(/[$,]/g, "")) - parseFloat(a[2].replace(/[$,]/g, "")));
+  };
+  const inventoryValue = catalog.reduce((n, p) => n + p.price * p.stock, 0);
+  const inventoryCost = catalog.reduce((n, p) => n + p.cost * p.stock, 0);
+  const view = () => {
+    switch (tab) {
+      case "Sales Overview": return <HubTable headers={["METRIC", "VALUE"]} empty="No data" rows={[
+        ["Orders", String(counted.length)], ["Revenue", money(revenue)], ["Items sold", String(counted.reduce((n, s) => n + itemCount(s), 0))], ["Refunds", `${money(refundAmt)} (${refunded.length})`], ["Net revenue", money(revenue - refundAmt)],
+      ]}/>;
+      case "Sales Transactions": return <HubTable headers={["INVOICE", "CUSTOMER", "DATE", "AMOUNT", "STATUS"]} empty="No sales yet" rows={[...sales].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")).slice(0, 40).map(s => [s.id, s.customer, s.date, money(saleTotal(s)), s.status])}/>; 
+      case "Sales by Product": { const m = new Map<string, number>(); for (const s of counted) for (const l of s.lines) m.set(l.name, (m.get(l.name) ?? 0) + l.price * l.qty); return <HubTable headers={["PRODUCT", "REVENUE"]} empty="No sales yet" rows={Array.from(m.entries()).map(([n, v]) => [n, money(v)]).sort((a, b) => parseFloat(b[1].replace(/[$,]/g, "")) - parseFloat(a[1].replace(/[$,]/g, "")))}/>; }
+      case "Sales by Category": return <HubTable headers={["CATEGORY", "ORDERS", "SALES"]} empty="No sales yet" rows={groupBy("category")}/>; 
+      case "Sales by Customer": return <HubTable headers={["CUSTOMER", "ORDERS", "SALES"]} empty="No sales yet" rows={groupBy("customer")}/>; 
+      case "Sales by Cashier": return <HubTable headers={["CASHIER", "ORDERS", "SALES"]} empty="No sales yet" rows={groupBy("servedBy")}/>; 
+      case "Stock Summary": return <HubTable headers={["PRODUCT", "SKU", "STOCK", "STATUS"]} empty="Catalog is empty" rows={catalog.map(p => [p.name, p.sku, `${p.stock} units`, p.stock === 0 ? "Out of stock" : p.stock < 10 ? "Low stock" : "Healthy"])}/> 
+      case "Stock Valuation": return <HubTable headers={["METRIC", "VALUE"]} empty="Catalog is empty" rows={[["Retail value", money(inventoryValue)], ["Cost value", money(inventoryCost)], ...(showMoney ? [["Potential margin", money(inventoryValue - inventoryCost)] as string[]] : [])]}/>; 
+      case "Low Stock": return <HubTable headers={["PRODUCT", "SKU", "STOCK"]} empty="No low stock" rows={catalog.filter(p => p.stock > 0 && p.stock < 10).map(p => [p.name, p.sku, `${p.stock} units`])}/>; 
+      case "Out of Stock": return <HubTable headers={["PRODUCT", "SKU", "STOCK"]} empty="Nothing out of stock" rows={catalog.filter(p => p.stock === 0).map(p => [p.name, p.sku, "0 units"])}/>; 
+      case "Profit & Loss": return <HubTable headers={["LINE", "AMOUNT"]} empty="No data" rows={showMoney ? [["Revenue", money(revenue)], ["Cost of goods sold", money(-cost)], ["Gross profit", money(revenue - cost)], ["Refunds", money(-refundAmt)], ["Net", money(revenue - cost - refundAmt)]] : [["Sign in as a manager", "—"]]} />; 
+      case "Refunds": return <HubTable headers={["INVOICE", "CUSTOMER", "DATE", "AMOUNT", "REASON"]} empty="No refunds yet" rows={refunded.map(s => [s.id, s.customer, s.date, money(saleTotal(s)), s.refundReason || "—"])}/>; 
+      case "Customer Summary": case "Customer Sales": case "Customer Balance": return <HubTable headers={["CUSTOMER", "ORDERS", "SALES"]} empty="No customers yet" rows={groupBy("customer")}/>; 
+      case "Loyalty Points": return <SoonPanel title="Loyalty points" what="Points accrual and redemption will be computed here once the loyalty module is built."/>; 
+      case "Register Summary": case "Shift Report": { const cash = counted.filter(s => s.payment === "Cash").reduce((n, s) => n + saleTotal(s), 0); return <HubTable headers={["ITEM", "AMOUNT"]} empty="No data" rows={[["Cash sales", money(cash)], ["Card / ABA sales", money(revenue - cash)], ["Refunds", money(refundAmt)], ["Expected drawer cash", money(cash - refundAmt)]]}/>; } 
+      case "Staff Performance": case "Cashier Sales": return <HubTable headers={["CASHIER", "ORDERS", "SALES"]} empty="No sales yet" rows={groupBy("servedBy")}/>; 
+      default: return <SoonPanel title={tab} what="This report needs a module that isn't built yet (purchases, suppliers, expenses, or the activity log) — no invented numbers are shown."/>; 
+    }
+  };
+  return <>
+    <PageHeading title="Reports" sub="Every report across sales, inventory, customers, finance, and staff"/>
+    <div className="subnav subnav-wrap">
+      {flat.map(t => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t}</button>)}
+    </div>
+    {view()}
+  </>;
+}
+
+/** Categories manager: list with counts, create/edit/delete via the categories API. */
+function CategoriesView({ catalog, canManage }: { catalog: Product[]; canManage: boolean }) {
+  type Cat = { id: string; name: string; parentId: string | null; description: string; status: "Active" | "Inactive"; sortOrder: number; createdBy: string; createdAt: string; updatedAt: string; productCount?: number };
+  const [cats, setCats] = useState<Cat[] | null>(null);
+  const [editing, setEditing] = useState<Cat | null>(null);
+  const [adding, setAdding] = useState(false);
+  const load = useCallback(() => { fetch("/api/categories").then(r => r.ok ? r.json() : Promise.reject()).then(d => setCats(d as Cat[])).catch(() => setCats([])); }, []);
+  useEffect(load, [load]);
+  const usedNames = new Set(catalog.map(p => p.category));
+  return <div className="panel table-panel"><div className="toolbar"><strong>{cats ? `${cats.length} categories` : "Loading…"}</strong>{canManage && <button className="primary-button" onClick={() => setAdding(true)}><Plus size={15}/> Add category</button>}</div>
+    {!cats ? <div className="empty">Loading…</div> : cats.length === 0 ? <div className="empty">No categories yet.</div>
+      : <div className="table-wrap"><table><thead><tr>{["NAME", "PARENT", "PRODUCTS", "SORT", "STATUS", "CREATED", ""].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+        {cats.map(c => <tr key={c.id}><td><strong>{c.name}</strong>{c.description && <span style={{ display: "block", color: "#9ba5ae", fontSize: 10 }}>{c.description}</span>}</td><td>{cats.find(x => x.id === c.parentId)?.name ?? "—"}</td><td>{c.productCount ?? usedNames.has(c.name) ? (c.productCount ?? catalog.filter(p => p.category === c.name).length) : 0}</td><td>{c.sortOrder}</td><td><span className={`status ${c.status === "Active" ? "paid" : "refunded"}`}>{c.status}</span></td><td>{new Date(c.createdAt).toLocaleDateString()}</td><td><div className="row-actions">{canManage ? <button className="text-button" onClick={() => setEditing(c)}>Edit</button> : <span className="you-chip">view only</span>}</div></td></tr>
+      )}</tbody></table></div>}
+    {(adding || editing) && <CategoryFormModal initial={editing} onClose={() => { setAdding(false); setEditing(null); }} onSaved={() => { load(); setAdding(false); setEditing(null); }}/>}
+  </div>;
+}
+
+function CategoryFormModal({ initial, onClose, onSaved }: { initial: { id?: string; name: string; parentId: string | null; description: string; status: "Active" | "Inactive"; sortOrder: number } | null; onClose: () => void; onSaved: () => void }) {
+  const [cats, setCats] = useState<{ id: string; name: string }[]>([]);
+  const [form, setForm] = useState({ name: initial?.name ?? "", parentId: initial?.parentId ?? "", description: initial?.description ?? "", status: initial?.status ?? "Active", sortOrder: String(initial?.sortOrder ?? 0) });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { fetch("/api/categories").then(r => r.json()).then(d => setCats((d as { id: string; name: string }[]).filter(c => c.id !== initial?.id))).catch(() => {}); }, [initial?.id]);
+  const submit = async () => {
+    if (!form.name.trim()) return setError("Name is required.");
+    setBusy(true); setError(null);
+    const body = { name: form.name.trim(), parentId: form.parentId || null, description: form.description.trim(), status: form.status, sortOrder: Number(form.sortOrder) || 0 };
+    const res = await fetch(initial?.id ? `/api/categories/${encodeURIComponent(initial.id)}` : "/api/categories", { method: initial?.id ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), credentials: "same-origin" });
+    setBusy(false);
+    if (!res.ok) { setError((await res.json() as { error?: string }).error ?? "Could not save."); return; }
+    onSaved();
+  };
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={e => e.stopPropagation()}><div className="modal-header"><h2>{initial?.id ? "Edit category" : "Add category"}</h2><button aria-label="Close category form" onClick={onClose}><X size={18}/></button></div>
+    <div className="form-grid">
+      <label>Name<input autoFocus value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}/></label>
+      <label>Parent category<select value={form.parentId} onChange={e => setForm({ ...form, parentId: e.target.value })}><option value="">— Top level —</option>{cats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+      <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value as "Active" | "Inactive" })}><option>Active</option><option>Inactive</option></select></label>
+      <label>Sort order<input type="number" value={form.sortOrder} onChange={e => setForm({ ...form, sortOrder: e.target.value })}/></label>
+      <label style={{ gridColumn: "1 / -1" }}>Description<input placeholder="Optional" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}/></label>
+    </div>
+    {error && <p className="field-error" role="alert">{error}</p>}
+    <div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy} onClick={submit}>{busy ? "Saving…" : "Save category"}</button></div>
+  </div></div>;
+}
+
 const pageInfo: Record<string, { title: string; subtitle: string; action?: string }> = {
   "POS": { title: "Point of sale", subtitle: "Ring up sales, take payment, and print receipts" },
   "Transactions": { title: "Transactions", subtitle: "Every sale, with receipts and refunds" },
@@ -338,7 +643,7 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && query.trim()) { e.preventDefault(); const t = query.trim(); if (/^#?inv/i.test(t)) { setOrderSearch(t.replace(/^#/, "")); navigate("Transactions"); } else { navigate("Products"); setQuery(t); } } }} placeholder="Search products, orders..."/><kbd className="search-kbd">Ctrl K</kbd></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Transactions" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : active === "Transactions" ? "history" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Products" || active === "Categories" ? <Products key={active} catalog={catalog} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "categories" : "products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" ? <StockPage catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock}/> : active === "Cash Register" ? <Finance sales={sales}/> : active === "Reports" ? <Reports sales={sales} catalog={catalog}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" ? <StockHub catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock}/> : active === "Cash Register" ? <Finance sales={sales}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }
@@ -622,12 +927,12 @@ type ProductsTab = "products" | "categories" | "stock";
 
 const PAGE_SIZE = 10;
 
-function Products({ catalog, query, onQuery, onUpsert, onDelete, onAdjust, canManage, initialTab }: { catalog: Product[]; query: string; onQuery: (q: string) => void; onUpsert: (p: Product, done?: (ok: boolean) => void) => void; onDelete: (sku: string, done?: (ok: boolean) => void) => void; onAdjust: (sku: string, delta: number) => void; canManage: boolean; initialTab?: ProductsTab }) {
+function Products({ catalog, query, onQuery, onUpsert, onDelete, onAdjust, canManage, initialTab, embed, initialAdd }: { catalog: Product[]; query: string; onQuery: (q: string) => void; onUpsert: (p: Product, done?: (ok: boolean) => void) => void; onDelete: (sku: string, done?: (ok: boolean) => void) => void; onAdjust: (sku: string, delta: number) => void; canManage: boolean; initialTab?: ProductsTab; embed?: boolean; initialAdd?: boolean }) {
   const [tab, setTab] = useState<ProductsTab>(initialTab ?? "products");
   const [catOpen, setCatOpen] = useState(false);
   const [category, setCategory] = useState("All categories");
   const [editing, setEditing] = useState<Product | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(initialAdd === true && canManage);
   const [deleting, setDeleting] = useState<Product | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [stockDone, setStockDone] = useState<string | null>(null);
@@ -682,7 +987,7 @@ function Products({ catalog, query, onQuery, onUpsert, onDelete, onAdjust, canMa
   const rows = serverItems ?? localMatches;
   const goPage = (p: number) => { setPage(Math.min(Math.max(1, p), serverMeta.pages)); };
 
-  return <><PageHeading title={pageInfo[initialTab === "categories" ? "Categories" : "Products"].title} sub={pageInfo[initialTab === "categories" ? "Categories" : "Products"].subtitle} action={initialTab === "categories" ? undefined : (canManage ? "Add product" : undefined)} onAction={()=>{setBanner(null);setAdding(true);}}/>
+  return <>{!embed && <PageHeading title={pageInfo[initialTab === "categories" ? "Categories" : "Products"].title} sub={pageInfo[initialTab === "categories" ? "Categories" : "Products"].subtitle} action={initialTab === "categories" ? undefined : (canManage ? "Add product" : undefined)} onAction={()=>{setBanner(null);setAdding(true);}}/>}
   {initialTab !== "categories" && <div className="subnav">
     <button className={`tab ${tab==="products"?"active":""}`} onClick={()=>switchTab("products")}>Products</button>
     <button className={`tab ${tab==="categories"?"active":""}`} onClick={()=>switchTab("categories")}>Categories</button>
@@ -774,11 +1079,11 @@ function ProductFormModal({ catalog, initial, onClose, onSave }: { catalog: Prod
 }
 
 /** Stock page: live stock table with low-stock highlighting plus the adjustment form. */
-function StockPage({ catalog, canManage, onAdjust }: { catalog: Product[]; canManage: boolean; onAdjust: (sku: string, delta: number) => void }) {
+function StockPage({ catalog, canManage, onAdjust, embed }: { catalog: Product[]; canManage: boolean; onAdjust: (sku: string, delta: number) => void; embed?: boolean }) {
   const [done, setDone] = useState<string | null>(null);
   const stockStatus = (stock: number) => stock === 0 ? ["Out of stock", "refunded"] as const : stock < 10 ? ["Low stock", "pending"] as const : ["Healthy", "paid"] as const;
   return <>
-    <PageHeading title={pageInfo["Stock"].title} sub={pageInfo["Stock"].subtitle}/>
+    {!embed && <PageHeading title={pageInfo["Stock"].title} sub={pageInfo["Stock"].subtitle}/>}
     {done && <p className="checkout-success success-banner" role="status">{done}</p>}
     <div className="stock-grid">
       <div className="panel table-panel">
@@ -796,7 +1101,7 @@ function StockPage({ catalog, canManage, onAdjust }: { catalog: Product[]; canMa
 
 type SalesTab = "pos" | "history" | "returns";
 
-function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, receiptFooter, currency, role, initialTab, initialHistoryQuery }: { catalog: Product[]; sales: Sale[]; onRecord: (lines: SaleLine[], payment: SalePayment, done?: (ok: boolean, sale?: Sale) => void) => void; onRefund: (id: string, reason: string, done?: (ok: boolean) => void) => void; storeName: string; storeLocation: string; receiptFooter: string; currency: string; role: StaffRole; initialTab: SalesTab; initialHistoryQuery?: string }) {
+function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, receiptFooter, currency, role, initialTab, initialHistoryQuery, embed }: { catalog: Product[]; sales: Sale[]; onRecord: (lines: SaleLine[], payment: SalePayment, done?: (ok: boolean, sale?: Sale) => void) => void; onRefund: (id: string, reason: string, done?: (ok: boolean) => void) => void; storeName: string; storeLocation: string; receiptFooter: string; currency: string; role: StaffRole; initialTab: SalesTab; initialHistoryQuery?: string; embed?: boolean }) {
   const [tab, setTab] = useState<SalesTab>(initialTab);
   const [cardsView, setCardsView] = useState(false);
   const [historyQuery, setHistoryQuery] = useState(initialHistoryQuery ?? "");
@@ -861,7 +1166,7 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
     });
   };
 
-  return <><PageHeading title={pageInfo[tab === "pos" ? "POS" : tab === "history" ? "Transactions" : "Returns & Refunds"].title} sub={pageInfo[tab === "pos" ? "POS" : tab === "history" ? "Transactions" : "Returns & Refunds"].subtitle}/>
+  return <>{!embed && <PageHeading title={pageInfo[tab === "pos" ? "POS" : tab === "history" ? "Transactions" : "Returns & Refunds"].title} sub={pageInfo[tab === "pos" ? "POS" : tab === "history" ? "Transactions" : "Returns & Refunds"].subtitle}/>}
   {refundDone && <p className="checkout-success success-banner" role="status">Refund for {refundDone} recorded successfully.</p>}
   {tab==="pos" && <div className="pos-layout"><div className="panel product-picker"><div className="toolbar"><h2>Choose products</h2><div className="filter"><Search size={15}/><input value={productQuery} onChange={e=>setProductQuery(e.target.value)} placeholder="Search products"/></div></div><div className="picker-grid">{visibleProducts.map(p=>{const inCart=cart.find(l=>l.sku===p.sku)?.qty??0;const left=p.stock-inCart;return <button key={p.sku} className="picker-card" disabled={left<=0} onClick={()=>{setJustCheckedOut(null);setCart(c=>c.some(l=>l.sku===p.sku)?c.map(l=>l.sku===p.sku?{...l,qty:l.qty+1}:l):[...c,toLine(p)]);}}><div className="picker-thumb">{p.image?<img src={p.image} alt=""/>:<div className="product-placeholder"><Package size={20}/></div>}</div><strong>{p.name}</strong><span>{money(p.price)} · {left<=0?"none left":"in stock: "+left}</span></button>;})}{visibleProducts.length===0&&<div className="empty">No products match your search.</div>}</div></div><div className="panel cart-panel"><div className="panel-header"><h2>Current sale</h2><span className="status paid">{cart.reduce((n,l)=>n+l.qty,0)} items</span></div>{cart.length===0?<div className="empty">Your cart is empty</div>:<div className="cart-lines">{cart.map((l,i)=><div className="cart-line" key={l.sku}><div><strong>{l.name}</strong><span>{money(l.price)} × {l.qty}</span></div><button aria-label={`Remove ${l.name}`} onClick={()=>setCart(c=>c.filter((_,idx)=>idx!==i))}><X size={14}/></button></div>)}</div>}<div className="cart-total"><span>Subtotal</span><strong>{money(total)}</strong></div>{justCheckedOut&&<p className="checkout-success" role="status">Sale {justCheckedOut.id} recorded.{justCheckedOut.changeDue ? ` Change due ${money(justCheckedOut.changeDue)}.` : ""}</p>}<button className="primary-button checkout" disabled={cart.length===0||busy} onClick={openPayment}>{busy ? "Charging…" : `Charge ${money(total)}`}</button></div></div>}
   {tab==="history" && <div className="panel table-panel"><div className={`toolbar ${loadingPage?"row-loading":""}`}><strong>{serverSales ? (historyQuery ? `${serverMeta.total} matching sales` : `${serverMeta.total} sales`) : (historyQuery ? `${historyMatches.length} of ${sales.length} sales` : `${sales.length} sales`)}</strong><div className="filter"><Search size={15}/><input placeholder="Search invoice or customer" value={historyQuery} onChange={e=>{setHistoryQuery(e.target.value);setPage(1);}}/>{historyQuery&&<button className="filter-clear" aria-label="Clear sales search" onClick={()=>{setHistoryQuery("");setPage(1);}}><X size={13}/></button>}</div><button className="outline-button" onClick={()=>setCardsView(v=>!v)}>{cardsView?"Table view":"Card view"}</button></div>{serverError&&<p className="offline-banner" role="alert">{serverError}</p>}{historyMatches.length===0?<div className="empty">{loadingPage?"Loading…":"No sales match your search."}</div>:cardsView?<div className={`receipts-grid ${loadingPage?"row-loading":""}`}>{historyMatches.map(s=><div className="panel receipt-card" key={s.id}><div className="receipt-card-head"><strong>{s.id}</strong><span className={`status ${statusClass(s.status)}`}>{s.status}</span></div><p>{s.customer} · {s.date}</p><div className="receipt-card-total"><span>{itemCount(s)} items</span><strong>{money(saleTotal(s))}</strong></div><button className="outline-button" onClick={()=>setViewing(s)}>View receipt</button></div>)}</div>:<SalesTable sales={historyMatches} onView={setViewing} onRefund={startRefund}/>}{serverSales && serverMeta.pages > 1 && (<div className="pager"><button className="outline-button" disabled={page<=1} onClick={()=>setPage(page-1)}>‹ Prev</button><span>Page {page} of {serverMeta.pages} · {serverMeta.total} sales</span><button className="outline-button" disabled={page>=serverMeta.pages} onClick={()=>setPage(page+1)}>Next ›</button></div>)}</div>}
@@ -998,92 +1303,6 @@ function LoginScreen({ onLogin, settings }: { onLogin: (name: string, role: Staf
 type ReportsTab = "products" | "inventory";
 type ReportRange = "today" | 7 | 30 | "month" | "custom" | "all";
 
-function Reports({ sales, catalog }: { sales: Sale[]; catalog: Product[] }) {
-  const [tab, setTab] = useState<ReportsTab>("products");
-  const [productQuery, setProductQuery] = useState("");
-  const [range, setRange] = useState<ReportRange>(30);
-  const [rangeOpen, setRangeOpen] = useState(false);
-
-  const DAY = 86_400_000;
-  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-  const rangeStart = range === "all" ? 0 : todayStart.getTime() - ((range as 7 | 30) - 1) * DAY;
-  const tsOf = (s: Sale) => s.createdAt ? new Date(s.createdAt).getTime() : NaN;
-  const inRange = (s: Sale) => range === "all" || (Number.isFinite(tsOf(s)) && tsOf(s) >= rangeStart);
-  const rangeLabel = range === "all" ? "all time" : `last ${range} days`;
-
-  // Money on refunds goes out the door, so refunds are subtracted from revenue and
-  // never counted as orders; refunded sale lines stay out of product rankings.
-  const counted = sales.filter(s => s.status !== "Refunded" && inRange(s));
-  const revenue = counted.reduce((sum, s) => sum + saleTotal(s), 0);
-  const orders = counted.length;
-  const unitsSold = counted.reduce((n, s) => n + itemCount(s), 0);
-  const refunds = sales.filter(s => s.status === "Refunded" && inRange(s));
-  const refundAmount = refunds.reduce((sum, s) => sum + saleTotal(s), 0);
-  const refundRate = orders + refunds.length > 0 ? Math.round((refunds.length / (orders + refunds.length)) * 1000) / 10 : 0;
-
-  // Daily buckets for day ranges; monthly buckets when viewing all time.
-  const dated = counted.filter(s => Number.isFinite(tsOf(s)));
-  const undated = counted.length - dated.length;
-  const buckets = new Map<string, { label: string; revenue: number; sort: number }>();
-  for (const s of dated) {
-    const d = new Date(tsOf(s));
-    const key = range === "all" ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` : d.toDateString();
-    const label = range === "all"
-      ? d.toLocaleDateString("en-US", { month: "short", year: "2-digit" })
-      : range === 7 ? d.toLocaleDateString("en-US", { weekday: "short" }) : String(d.getDate());
-    const row = buckets.get(key) ?? { label, revenue: 0, sort: tsOf(s) };
-    row.revenue += saleTotal(s);
-    buckets.set(key, row);
-  }
-  // Fill the empty days so the chart shows honest gaps.
-  if (range !== "all") {
-    for (let i = 0; i < (range as 7 | 30); i++) {
-      const d = new Date(todayStart.getTime() - ((range as 7 | 30) - 1 - i) * DAY);
-      const key = d.toDateString();
-      if (!buckets.has(key)) buckets.set(key, { label: range === 7 ? d.toLocaleDateString("en-US", { weekday: "short" }) : String(d.getDate()), revenue: 0, sort: d.getTime() });
-    }
-  }
-  const week = Array.from(buckets.values()).sort((a, b) => a.sort - b.sort);
-  const labelEvery = week.length > 16 ? 5 : 1;
-  const maxRevenue = Math.max(...week.map(d => d.revenue), 1);
-
-  const byProduct = new Map<string, { name: string; sku: string; qty: number; revenue: number }>();
-  for (const s of counted) for (const l of s.lines) {
-    const row = byProduct.get(l.sku) ?? { name: l.name, sku: l.sku, qty: 0, revenue: 0 };
-    row.qty += l.qty; row.revenue += l.qty * l.price;
-    byProduct.set(l.sku, row);
-  }
-  const productRows = Array.from(byProduct.values()).sort((a, b) => b.revenue - a.revenue);
-  const filteredProducts = productRows.filter(r => `${r.name} ${r.sku}`.toLowerCase().includes(productQuery.toLowerCase()));
-
-  const inventoryValue = catalog.reduce((sum, p) => sum + p.price * p.stock, 0);
-  const unitsInStock = catalog.reduce((n, p) => n + p.stock, 0);
-  const stockStatus = (stock: number) => stock === 0 ? ["Out of stock", "refunded"] as const : stock < 10 ? ["Low stock", "pending"] as const : ["Healthy", "paid"] as const;
-
-  return <><PageHeading title="Reports" sub="Understand your store performance"/>
-    <div className="subnav">
-      <button className={`tab ${tab==="products"?"active":""}`} onClick={()=>setTab("products")}>Product performance</button>
-      <button className={`tab ${tab==="inventory"?"active":""}`} onClick={()=>setTab("inventory")}>Inventory health</button>
-      <div className="select-wrap range-wrap"><button className="select-button" onClick={()=>setRangeOpen(o=>!o)}>{range === "all" ? "All time" : `Last ${range} days`} <ChevronDown size={14}/></button>{rangeOpen && <><button className="menu-backdrop" aria-label="Close range menu" onClick={()=>setRangeOpen(false)}/><div className="select-menu">{([7,30,"all"] as ReportRange[]).map(r=><button key={String(r)} className={range===r?"on":""} onClick={()=>{setRange(r);setRangeOpen(false);}}>{r === "all" ? "All time" : `Last ${r} days`}</button>)}</div></>}</div>
-    </div>
-    {tab==="products" && <div className="panel table-panel"><div className="toolbar"><strong>{productQuery?`${filteredProducts.length} of ${productRows.length} products`:`${productRows.length} products sold · ${rangeLabel}`}</strong><div className="filter"><Search size={15}/><input placeholder="Search product or SKU" value={productQuery} onChange={e=>setProductQuery(e.target.value)}/>{productQuery&&<button className="filter-clear" aria-label="Clear product search" onClick={()=>setProductQuery("")}><X size={13}/></button>}</div></div>
-      {filteredProducts.length===0?<div className="empty">No products match your search.</div>:<DataTable headers={["PRODUCT","SKU","UNITS SOLD","REVENUE"]} rows={filteredProducts.map(r=>[r.name,r.sku,String(r.qty),money(r.revenue)])}/>}
-    </div>}
-    {tab==="inventory" && <>
-      <section className="stats-grid">
-        <Stat label="Inventory value" value={money(inventoryValue)} change={`${catalog.length} products`} icon={Package} tone="blue"/>
-        <Stat label="Units in stock" value={String(unitsInStock)} change="across catalog" icon={Box} tone="purple"/>
-        <Stat label="Low stock" value={String(catalog.filter(p=>p.stock>0&&p.stock<10).length)} change="under 10 units" icon={Tag} tone="orange" negative/>
-        <Stat label="Out of stock" value={String(catalog.filter(p=>p.stock===0).length)} change="needs restock" icon={ArrowDownRight} tone="orange" negative={catalog.some(p=>p.stock===0)}/>
-      </section>
-      <div className="panel table-panel"><div className="toolbar"><strong>Stock levels</strong></div>
-        <DataTable headers={["PRODUCT","SKU","PRICE","STOCK","STATUS"]} rows={catalog.map(p=>{const [label,tone]=stockStatus(p.stock);return [p.name,p.sku,money(p.price),`${p.stock} units`,label];}).map((row)=>row)}/>
-      </div>
-    </>}
-  </>;
-}
-
-/** Cash Register page: the Finance overview — income, refunds, net, pending, and the transaction ledger. */
 function Finance({ sales }: { sales: Sale[] }) {
   const [txnQuery, setTxnQuery] = useState("");
   const [method, setMethod] = useState("All payments");

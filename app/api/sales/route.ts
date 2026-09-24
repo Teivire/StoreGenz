@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { backfillCreatedAt, ensureSeeded, getProductsCollection, getSalesCollection, normalizeLegacySales, requireStaff, type Sale, type SaleLine, type SaleStatus } from "@/lib/db";
+import { backfillCreatedAt, ensureSeeded, getMovementsCollection, getProductsCollection, getSalesCollection, normalizeLegacySales, requireStaff, type Sale, type SaleLine, type SaleStatus } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -131,13 +131,14 @@ export async function POST(request: Request) {
     }));
     const result = await products.bulkWrite(decrements, { ordered: true });
     if (result.modifiedCount !== sale.lines.length) {
-      // ordered bulkWrite stops at the first failed op, so exactly the first
-      // `modifiedCount` lines were applied — revert them so the sale is all-or-nothing.
+      // ordered bulkWrite stops at the first op that didn't match (insufficient stock).
+      // Exactly `modifiedCount` lines were decremented before the failure — revert
+      // only those so the operation is all-or-nothing and inventory stays consistent.
       const applied = sale.lines.slice(0, result.modifiedCount);
       if (applied.length > 0) {
         await products.bulkWrite(
           applied.map(l => ({ updateOne: { filter: { _id: l.sku }, update: { $inc: { stock: l.qty } } } })),
-          { ordered: true }
+          { ordered: false }
         );
       }
       return bad("Not enough stock for one or more items.", 409);
@@ -149,6 +150,14 @@ export async function POST(request: Request) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         await sales.insertOne({ ...sale, _id: sale.id });
+        // Movement ledger: one 'sale' entry per line (out). Best-effort.
+        await getMovementsCollection().then(m => m.insertMany(sale.lines.map(l => ({
+          _id: `${sale.id}-${l.sku}`,
+          sku: l.sku, productName: l.name, delta: -l.qty,
+          reason: "sale" as const, note: "",
+          by: sale.servedBy ?? "system", refId: sale.id,
+          createdAt: new Date().toISOString(),
+        })))).catch(() => {});
         return NextResponse.json(sale, { status: 201 });
       } catch (e) {
         const isDup = (e as { code?: number }).code === 11000;

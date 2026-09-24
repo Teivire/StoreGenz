@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireStaff, ensureSeeded, getProductsCollection, type Product, type StoredProduct } from "@/lib/db";
+import { requireStaff, ensureSeeded, getProductsCollection, getMovementsCollection, type Product, type StoredProduct } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -58,6 +58,20 @@ export async function PATCH(request: Request, { params }: { params: { sku: strin
       ...(Object.keys(update).length ? { $set: update } : {}),
       ...(unsetImage ? { $unset: { image: "" } } : {})
     });
+
+    // Ledger: record manual stock deltas so Stock Movement has a real history.
+    if (body.stockDelta !== undefined && Number(body.stockDelta) !== 0) {
+      const by = await requireStaff(request, "Manager").catch(() => "system");
+      await getMovementsCollection().then(m => m.insertOne({
+        _id: `${sku}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        sku, productName: update.name ?? existing.name,
+        delta: Number(body.stockDelta),
+        reason: "adjustment",
+        note: typeof (body as { note?: string }).note === "string" ? (body as { note?: string }).note!.slice(0, 200) : "",
+        by, refId: "",
+        createdAt: new Date().toISOString(),
+      }));
+    }
     const updated = await products.findOne({ _id: sku }) as StoredProduct;
     const { _id, ...product } = updated;
     return NextResponse.json(product);

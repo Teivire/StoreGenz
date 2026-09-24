@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireStaff, ensureSeeded, getProductsCollection, getSalesCollection } from "@/lib/db";
+import { requireStaff, ensureSeeded, getMovementsCollection, getProductsCollection, getSalesCollection } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -29,6 +29,14 @@ export async function PATCH(request: Request, { params }: { params: { id: string
         existing.lines.map(l => ({ updateOne: { filter: { _id: l.sku }, update: { $inc: { stock: l.qty } } } })),
         { ordered: false }
       );
+      // Movement ledger: refund entries (back in). Best-effort.
+      await getMovementsCollection().then(m => m.insertMany(existing.lines.map(l => ({
+        _id: `refund-${existing.id}-${l.sku}`,
+        sku: l.sku, productName: l.name, delta: l.qty,
+        reason: "refund" as const, note: reason.slice(0, 200),
+        by: "system", refId: existing.id,
+        createdAt: new Date().toISOString(),
+      })))).catch(() => {});
     }
 
     return NextResponse.json({ ok: true });

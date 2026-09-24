@@ -167,3 +167,6 @@ html,body{height:100%}
 .custom-dates input{display:block;width:100%;margin-top:4px;padding:7px 8px;border:1px solid var(--line);border-radius:6px;font-size:11px;outline:none;background:#fff}
 .custom-dates input:focus{border-color:#b9dcc9}
 .custom-dates .outline-button{justify-content:center;margin-top:2px}
+
+/* Hub subnavs: many views per hub, wrap instead of overflow */
+.subnav-wrap{flex-wrap:wrap;row-gap:2px}
