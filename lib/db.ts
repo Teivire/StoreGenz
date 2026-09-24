@@ -37,13 +37,41 @@ export type StockMovement = {
   sku: string;
   productName: string;
   delta: number;          // +in / −out
-  reason: "adjustment" | "sale" | "refund" | "transfer-in" | "transfer-out" | "seed";
+  reason: "adjustment" | "sale" | "refund" | "purchase" | "purchase-return" | "transfer-in" | "transfer-out" | "seed";
   note: string;
   by: string;             // staff name ("system" for sale/refund)
-  refId: string;          // invoice / transfer id / ""
+  refId: string;          // invoice / PO / transfer id / ""
   createdAt: string;      // ISO
 };
 export type StoredStockMovement = StockMovement & { _id: string };
+
+/** Expense: money out (rent, utilities, supplies), recorded by managers+. */
+export type Expense = {
+  id: string;            // "EXP-<n>"
+  date: string;          // ISO
+  category: string;
+  amount: number;        // positive; the expense IS money out
+  note: string;
+  createdBy: string;
+  createdAt: string;
+};
+export type StoredExpense = Expense & { _id: string };
+
+/** Purchase order: supplier delivery, received into stock via the movement ledger. */
+export type PurchaseLine = { sku: string; name: string; qty: number; cost: number };
+export type PurchaseStatus = "Pending" | "Received" | "Returned";
+export type Purchase = {
+  id: string;            // "PO-<n>"
+  supplier: string;
+  lines: PurchaseLine[];
+  status: PurchaseStatus;
+  note: string;
+  createdBy: string;
+  createdAt: string;     // ISO
+  receivedAt?: string;
+  returnedAt?: string;
+};
+export type StoredPurchase = Purchase & { _id: string };
 
 /** Category taxonomy: id/name/parentId/description/status/sortOrder + audit fields. */
 export type Category = {
@@ -122,6 +150,14 @@ export async function getCategoriesCollection() {
 
 export async function getMovementsCollection() {
   return (await getDb()).collection<StoredStockMovement>("stock_movements");
+}
+
+export async function getExpensesCollection() {
+  return (await getDb()).collection<StoredExpense>("expenses");
+}
+
+export async function getPurchasesCollection() {
+  return (await getDb()).collection<StoredPurchase>("purchases");
 }
 
 const DEFAULT_SETTINGS: StoreSettings = {

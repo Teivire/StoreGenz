@@ -206,3 +206,9 @@ html,body{height:100%}
 .store-menu.as-popout{bottom:-6px}
 .profile-popover.as-popout{bottom:-4px}
 @media(max-width:760px){.sidebar.collapsed{width:260px;padding:24px 16px 18px}.sidebar.collapsed .brand>div:not(.brand-mark),.sidebar.collapsed .store-switcher>div:nth-child(2),.sidebar.collapsed .store-switcher>svg,.sidebar.collapsed .nav-item span,.sidebar.collapsed .nav-label,.sidebar.collapsed .help-card,.sidebar.collapsed .profile>div:nth-child(2),.sidebar.collapsed .profile>svg{display:revert}.sidebar.collapsed .nav-item{justify-content:flex-start;padding:10px 12px;gap:13px}.sidebar.collapsed .collapse-toggle{display:none}.sidebar.collapsed .profile{justify-content:flex-start;padding-top:15px;border-top:1px solid var(--line)}.store-menu.as-popout,.profile-popover.as-popout{left:0;right:0;bottom:auto;top:calc(100% + 8px);width:auto}}
+
+/* Purchase-order line editor */
+.po-line{display:grid;grid-template-columns:1fr 80px 100px 28px;gap:8px;margin-top:8px}
+.po-line select,.po-line input{padding:8px 9px;border:1px solid var(--line);border-radius:6px;font-size:12px;outline:none;background:#fff}
+.po-line select:focus,.po-line input:focus{border-color:#b9dcc9}
+.po-line .text-button{display:grid;place-items:center}

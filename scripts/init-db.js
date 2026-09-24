@@ -150,11 +150,58 @@ const validators = {
         sku: { bsonType: "string", minLength: 1 },
         productName: { bsonType: "string", minLength: 1 },
         delta: { bsonType: "int" },
-        reason: { enum: ["adjustment", "sale", "refund", "transfer-in", "transfer-out", "seed"] },
+        reason: { enum: ["adjustment", "sale", "refund", "purchase", "purchase-return", "transfer-in", "transfer-out", "seed"] },
         note: { bsonType: "string", maxLength: 200 },
         by: { bsonType: "string", minLength: 1 },
         refId: { bsonType: "string" },
         createdAt: { bsonType: "string" }
+      }
+    }
+  },
+  expenses: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "id", "date", "category", "amount", "note", "createdBy", "createdAt"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        id: { bsonType: "string", pattern: "^EXP-\\d+$" },
+        date: { bsonType: "string" },
+        category: { bsonType: "string", minLength: 1 },
+        amount: { bsonType: "number", minimum: 0.01 },
+        note: { bsonType: "string", maxLength: 200 },
+        createdBy: { bsonType: "string" },
+        createdAt: { bsonType: "string" }
+      }
+    }
+  },
+  purchases: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "id", "supplier", "lines", "status", "note", "createdBy", "createdAt"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        id: { bsonType: "string", pattern: "^PO-\\d+$" },
+        supplier: { bsonType: "string", minLength: 1, maxLength: 80 },
+        lines: {
+          bsonType: "array",
+          minItems: 1,
+          items: {
+            bsonType: "object",
+            required: ["sku", "name", "qty", "cost"],
+            properties: {
+              sku: { bsonType: "string", minLength: 1 },
+              name: { bsonType: "string", minLength: 1 },
+              qty: { bsonType: "int", minimum: 1 },
+              cost: { bsonType: "number", minimum: 0 }
+            }
+          }
+        },
+        status: { enum: ["Pending", "Received", "Returned"] },
+        note: { bsonType: "string", maxLength: 200 },
+        createdBy: { bsonType: "string" },
+        createdAt: { bsonType: "string" },
+        receivedAt: { bsonType: "string" },
+        returnedAt: { bsonType: "string" }
       }
     }
   }
@@ -189,6 +236,14 @@ const indexes = {
     { key: { createdAt: -1 }, name: "createdAt_-1" },
     { key: { sku: 1, createdAt: -1 }, name: "sku_1_createdAt_-1" },
     { key: { reason: 1, createdAt: -1 }, name: "reason_1_createdAt_-1" }
+  ],
+  expenses: [
+    { key: { date: -1 }, name: "date_-1" },
+    { key: { category: 1, date: -1 }, name: "category_1_date_-1" }
+  ],
+  purchases: [
+    { key: { createdAt: -1 }, name: "createdAt_-1" },
+    { key: { status: 1, createdAt: -1 }, name: "status_1_createdAt_-1" }
   ]
 };
 

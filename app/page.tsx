@@ -79,6 +79,77 @@ const navGroups = [
 const money = (n: number) => `${n < 0 ? "-" : ""}$${Math.abs(n).toFixed(2)}`;
 /* ================= Hub pages: Transactions / Products / Stock / Reports ================= */
 
+type PurchaseLite = { id: string; supplier: string; lines: { sku: string; name: string; qty: number; cost: number }[]; status: "Pending" | "Received" | "Returned"; note: string; createdBy: string; createdAt: string; receivedAt?: string; returnedAt?: string };
+type ExpenseLite = { id: string; date: string; category: string; amount: number; note: string; createdBy: string; createdAt: string };
+type MovementLite = { sku: string; productName: string; delta: number; reason: string; note: string; by: string; refId: string; createdAt: string };
+const EXPENSE_CATEGORIES = ["Rent", "Utilities", "Supplies", "Salaries", "Marketing", "Maintenance", "Transport", "Other"];
+
+/** New purchase order: supplier + product lines; receiving it stocks the ledger. */
+function PurchaseFormModal({ catalog, onClose, onSaved }: { catalog: Product[]; onClose: () => void; onSaved: (msg: string) => void }) {
+  const [supplier, setSupplier] = useState("");
+  const [note, setNote] = useState("");
+  const [lines, setLines] = useState<{ sku: string; qty: string; cost: string }[]>([{ sku: catalog[0]?.sku ?? "", qty: "1", cost: "" }]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const setLine = (i: number, patch: Partial<{ sku: string; qty: string; cost: string }>) => setLines(ls => ls.map((l, j) => j === i ? { ...l, ...patch } : l));
+  const submit = async () => {
+    if (!supplier.trim()) return setError("Supplier name is required.");
+    setBusy(true); setError(null);
+    const res = await fetch("/api/purchases", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ supplier: supplier.trim(), note, lines: lines.map(l => ({ sku: l.sku, qty: Number(l.qty), cost: l.cost === "" ? undefined : Number(l.cost) })) }) });
+    const data = await res.json() as { error?: string; id?: string };
+    setBusy(false);
+    if (!res.ok) return setError(data.error ?? "Could not create the purchase order.");
+    onSaved(`Purchase order ${data.id} created — receive it to add the stock.`);
+  };
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal" style={{ width: "min(560px, 100%)" }} onClick={e => e.stopPropagation()}>
+    <div className="modal-header"><h2>New purchase order</h2><button aria-label="Close purchase form" onClick={onClose}><X size={18}/></button></div>
+    <div className="form-grid">
+      <label>Supplier<input autoFocus placeholder="e.g. Fresh Foods Co." value={supplier} onChange={e => { setSupplier(e.target.value); setError(null); }}/></label>
+      <label>Note (optional)<input placeholder="e.g. Weekly delivery" value={note} onChange={e => setNote(e.target.value)}/></label>
+    </div>
+    <p className="form-intro" style={{ margin: "12px 0 6px", fontWeight: 700, color: "#566575", fontSize: 11 }}>Lines</p>
+    {lines.map((l, i) => {
+      const p = catalog.find(x => x.sku === l.sku);
+      return <div className="po-line" key={i}>
+        <select value={l.sku} onChange={e => setLine(i, { sku: e.target.value, cost: p ? String(p.cost) : "" })}>{catalog.map(x => <option key={x.sku} value={x.sku}>{x.name}</option>)}</select>
+        <input type="number" min="1" placeholder="Qty" value={l.qty} onChange={e => setLine(i, { qty: e.target.value })}/>
+        <input type="number" min="0" step="0.01" placeholder="Unit cost" value={l.cost} onChange={e => setLine(i, { cost: e.target.value })}/>
+        {lines.length > 1 && <button className="text-button danger" aria-label="Remove line" onClick={() => setLines(ls => ls.filter((_, j) => j !== i))}><X size={14}/></button>}
+      </div>;
+    })}
+    <button className="outline-button" style={{ marginTop: 8 }} onClick={() => setLines(ls => [...ls, { sku: catalog[0]?.sku ?? "", qty: "1", cost: "" }])}><Plus size={14}/> Add line</button>
+    {error && <p className="field-error" role="alert">{error}</p>}
+    <div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy} onClick={submit}>{busy ? "Creating…" : "Create order"}</button></div>
+  </div></div>;
+}
+
+/** Record expense: category, amount, optional note. */
+function ExpenseFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: (msg: string) => void }) {
+  const [form, setForm] = useState({ category: "Supplies", amount: "", note: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    const amount = Number(form.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return setError("Amount must be a positive number.");
+    setBusy(true); setError(null);
+    const res = await fetch("/api/expenses", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ category: form.category, amount, note: form.note }) });
+    const data = await res.json() as { error?: string; id?: string };
+    setBusy(false);
+    if (!res.ok) return setError(data.error ?? "Could not record the expense.");
+    onSaved(`Expense ${data.id} recorded.`);
+  };
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={e => e.stopPropagation()}>
+    <div className="modal-header"><h2>Record expense</h2><button aria-label="Close expense form" onClick={onClose}><X size={18}/></button></div>
+    <div className="form-grid">
+      <label>Category<select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>{EXPENSE_CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></label>
+      <label>Amount (USD)<input autoFocus type="number" min="0.01" step="0.01" placeholder="0.00" value={form.amount} onChange={e => { setForm({ ...form, amount: e.target.value }); setError(null); }}/></label>
+      <label style={{ gridColumn: "1 / -1" }}>Note (optional)<input placeholder="e.g. September electricity" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/></label>
+    </div>
+    {error && <p className="field-error" role="alert">{error}</p>}
+    <div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy} onClick={submit}>{busy ? "Saving…" : "Record expense"}</button></div>
+  </div></div>;
+}
+
 /** An "honest placeholder" panel for modules that aren't built yet — says so plainly. */
 function SoonPanel({ title, what }: { title: string; what: string }) {
   return <div className="panel empty-panel"><div className="empty"><strong>{title}</strong><p>{what}</p><span className="you-chip">Module not built yet — no invented data shown</span></div></div>;
@@ -91,9 +162,10 @@ function HubTable({ headers, rows, empty }: { headers: string[]; rows: string[][
 }
 
 /** Transactions hub: the 11-view transaction ledger. */
-function TransactionsHub({ sales, onRefund, storeName, storeLocation, receiptFooter, currency, role, orderSearch }: {
+function TransactionsHub({ sales, onRefund, storeName, storeLocation, receiptFooter, currency, role, orderSearch, canManage, catalog }: {
   sales: Sale[]; onRefund: (id: string, reason: string, done?: (ok: boolean) => void) => void;
   storeName: string; storeLocation: string; receiptFooter: string; currency: string; role: StaffRole; orderSearch?: string;
+  canManage: boolean; catalog: Product[];
 }) {
   const tabs = ["All Transactions", "Sales", "Purchases", "Sales Returns", "Purchase Returns", "Payments", "Refunds", "Expenses", "Stock Adjustments", "Stock Transfers", "Cash Drawer"] as const;
   const [tab, setTab] = useState<(typeof tabs)[number]>("All Transactions");
@@ -102,6 +174,20 @@ function TransactionsHub({ sales, onRefund, storeName, storeLocation, receiptFoo
   const [refundNote, setRefundNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState(orderSearch ?? "");
+  // Server-backed data for the purchase/expense/adjustment views; loaded lazily per hub mount.
+  const [purchases, setPurchases] = useState<PurchaseLite[] | null>(null);
+  const [expenses, setExpenses] = useState<ExpenseLite[] | null>(null);
+  const [movements, setMovements] = useState<MovementLite[] | null>(null);
+  const [ledgerError, setLedgerError] = useState<string | null>(null);
+  const [poFormOpen, setPoFormOpen] = useState(false);
+  const [expFormOpen, setExpFormOpen] = useState(false);
+  const loadLedger = useCallback(() => {
+    fetch("/api/purchases").then(r => { if (!r.ok) throw 0; return r.json(); }).then(d => setPurchases(d as PurchaseLite[])).catch(() => { setPurchases([]); setLedgerError("Could not load purchases."); });
+    fetch("/api/expenses").then(r => { if (!r.ok) throw 0; return r.json(); }).then(d => setExpenses(d as ExpenseLite[])).catch(() => { setExpenses([]); setLedgerError("Could not load expenses."); });
+    fetch("/api/movements?limit=300").then(r => { if (!r.ok) throw 0; return r.json(); }).then(d => setMovements(d as MovementLite[])).catch(() => setMovements([]));
+  }, []);
+  useEffect(loadLedger, [loadLedger]);
+  const reloadLedger = () => { setPurchases(null); setExpenses(null); loadLedger(); };
   const startRefund = (s: Sale) => { setViewing(null); setRefundNote(""); setRefunding(s); };
   const confirmRefund = () => { if (!refunding || busy) return; setBusy(true); onRefund(refunding.id, refundNote, ok => { setBusy(false); setRefunding(null); }); };
   const q = query.toLowerCase().trim();
@@ -137,10 +223,27 @@ function TransactionsHub({ sales, onRefund, storeName, storeLocation, receiptFoo
     {current && <div className="panel table-panel"><div className="toolbar"><strong>{q ? `${rows.length} of ${current.rows.length} transactions` : `${current.rows.length} ${tab.toLowerCase()}`}</strong><div className="filter"><Search size={15}/><input placeholder="Search this view" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button className="filter-clear" aria-label="Clear search" onClick={()=>setQuery("")}><X size={13}/></button>}</div></div>
       {rows.length === 0 ? <div className="empty">{q ? "Nothing matches your search." : current.empty}</div> : <DataTable headers={current.headers} rows={rows}/>}
     </div>}
-    {tab === "Purchases" && <SoonPanel title="Purchases" what="Purchase orders will appear here once the Purchases module is built — supplier deliveries will then feed stock and expenses automatically."/>}
-    {tab === "Purchase Returns" && <SoonPanel title="Purchase returns" what="Returning goods to suppliers will be recorded here, linked to their purchase orders."/>}
-    {tab === "Expenses" && <SoonPanel title="Expenses" what="Expense records (rent, utilities, supplies) will appear here once the Expenses module is built."/>}
-    {tab === "Stock Adjustments" && <SoonPanel title="Stock adjustments" what="Every manual stock correction is being recorded in the movement ledger — the Stock → Stock Movement view shows them today."/>}
+    {tab === "Purchases" && <div className="panel table-panel"><div className="toolbar"><strong>{purchases ? `${purchases.filter(p => p.status !== "Returned").length} purchase orders` : "Loading…"}</strong><button className="primary-button" disabled={!canManage} title={canManage ? undefined : "Managers only"} onClick={() => setPoFormOpen(true)}><Plus size={15}/> New purchase</button></div>
+      {!purchases ? <div className="empty">Loading…</div> : purchases.filter(p => p.status !== "Returned").length === 0 ? <div className="empty">No purchase orders yet — create one to receive stock from a supplier.</div>
+        : <div className="table-wrap"><table><thead><tr>{["PO", "SUPPLIER", "ITEMS", "TOTAL COST", "STATUS", "CREATED", ""].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+          {purchases.filter(p => p.status !== "Returned").map(p => <tr key={p.id}>
+            <td><strong>{p.id}</strong></td><td>{p.supplier}</td><td>{p.lines.length}</td><td>{money(p.lines.reduce((n, l) => n + l.qty * l.cost, 0))}</td>
+            <td><span className={`status ${p.status === "Received" ? "paid" : "pending"}`}>{p.status}</span></td><td>{new Date(p.createdAt).toLocaleDateString()}</td>
+            <td><div className="row-actions">{canManage && p.status === "Pending" ? <button className="text-button" onClick={() => { fetch("/api/purchases/" + encodeURIComponent(p.id), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "receive" }), credentials: "same-origin" }).then(r => r.json().then(d => ({ ok: r.ok, d }))).then(({ ok, d }) => { if (ok) reloadLedger(); else setLedgerError(d.error ?? "Receive failed."); }); }}>Receive</button> : p.status === "Received" ? <span className="you-chip">received {p.receivedAt ? new Date(p.receivedAt).toLocaleDateString() : ""}</span> : null}</div></td>
+          </tr>)}</tbody></table></div>}
+    </div>}
+    {tab === "Purchase Returns" && <div className="panel table-panel"><div className="toolbar"><strong>{purchases ? `${purchases.filter(p => p.status === "Returned").length} returned orders` : "Loading…"}</strong></div>
+      {!purchases ? <div className="empty">Loading…</div> : purchases.filter(p => p.status === "Returned").length === 0 ? <div className="empty">No purchase returns — returned supplier deliveries will appear here.</div>
+        : <DataTable headers={["PO", "SUPPLIER", "ITEMS", "VALUE", "RETURNED"]} rows={purchases.filter(p => p.status === "Returned").map(p => [p.id, p.supplier, String(p.lines.length), money(p.lines.reduce((n, l) => n + l.qty * l.cost, 0)), p.returnedAt ? new Date(p.returnedAt).toLocaleDateString() : "—"])}/>}
+    </div>}
+    {tab === "Expenses" && <div className="panel table-panel"><div className="toolbar"><strong>{expenses ? `${expenses.length} expenses` : "Loading…"}</strong><button className="primary-button" disabled={!canManage} title={canManage ? undefined : "Managers only"} onClick={() => setExpFormOpen(true)}><Plus size={15}/> Record expense</button></div>
+      {!expenses ? <div className="empty">Loading…</div> : expenses.length === 0 ? <div className="empty">No expenses recorded yet.</div>
+        : <DataTable headers={["ID", "DATE", "CATEGORY", "NOTE", "AMOUNT", "BY"]} rows={expenses.map(e => [e.id, new Date(e.date).toLocaleDateString(), e.category, e.note || "—", money(-e.amount), e.createdBy])}/>}
+    </div>}
+    {tab === "Stock Adjustments" && <div className="panel table-panel"><div className="toolbar"><strong>{movements ? `${movements.filter(m => m.reason === "adjustment").length} manual adjustments` : "Loading…"}</strong></div>
+      {!movements ? <div className="empty">Loading…</div> : movements.filter(m => m.reason === "adjustment").length === 0 ? <div className="empty">No manual adjustments recorded — stock corrections land here from the Stock page.</div>
+        : <DataTable headers={["PRODUCT", "SKU", "CHANGE", "NOTE", "BY", "WHEN"]} rows={movements.filter(m => m.reason === "adjustment").map(m => [m.productName, m.sku, `${m.delta > 0 ? "+" : ""}${m.delta}`, m.note || "—", m.by, new Date(m.createdAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })])}/>}
+    </div>}
     {tab === "Stock Transfers" && <SoonPanel title="Stock transfers" what="Moving stock between locations will be recorded here once multi-store locations exist."/>}
     {tab === "Cash Drawer" && <div className="panel table-panel"><div className="toolbar"><strong>Cash drawer — today</strong></div>
       <DataTable headers={["ITEM", "AMOUNT", "DETAIL"]} rows={[
@@ -149,6 +252,9 @@ function TransactionsHub({ sales, onRefund, storeName, storeLocation, receiptFoo
         ["Refunds (all methods)", money(-refundTotal), `${refunded.length} refund${refunded.length === 1 ? "" : "s"}`],
         ["Expected cash in drawer", money(cashSales.reduce((n, s) => n + saleTotal(s), 0) - refundTotal), "cash sales minus refunds"],
       ]}/></div>}
+    {ledgerError && <p className="offline-banner error-banner" role="alert">{ledgerError}<button className="banner-close" aria-label="Dismiss" onClick={() => setLedgerError(null)}><X size={14}/></button></p>}
+    {poFormOpen && <PurchaseFormModal catalog={catalog} onClose={() => setPoFormOpen(false)} onSaved={msg => { setPoFormOpen(false); setLedgerError(null); reloadLedger(); }}/>}
+    {expFormOpen && <ExpenseFormModal onClose={() => setExpFormOpen(false)} onSaved={msg => { setExpFormOpen(false); setLedgerError(null); reloadLedger(); }}/>}
     {viewing && <ReceiptModal sale={viewing} onClose={()=>setViewing(null)} onRefund={startRefund} storeName={storeName} storeLocation={storeLocation} receiptFooter={receiptFooter} currency={currency}/>}
     {refunding && <div className="modal-backdrop" onClick={()=>setRefunding(null)}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>Refund {refunding.id}</h2><button aria-label="Close refund dialog" onClick={()=>setRefunding(null)}><X size={18}/></button></div><p className="refund-summary">Refunding <strong>{money(saleTotal(refunding))}</strong> ({itemCount(refunding)} items) from <strong>{refunding.customer}</strong> back via {refunding.payment}.</p><label>Reason<textarea autoFocus placeholder="e.g. Damaged goods, customer changed their mind" value={refundNote} onChange={e=>setRefundNote(e.target.value)}/></label><div className="modal-actions"><button className="outline-button" onClick={()=>setRefunding(null)}>Cancel</button><button className="primary-button" disabled={busy} onClick={confirmRefund}>{busy ? "Refunding…" : `Confirm refund ${money(saleTotal(refunding))}`}</button></div></div></div>}
   </>;
@@ -274,6 +380,8 @@ function StockHub({ catalog, canManage, onAdjust }: { catalog: Product[]; canMan
 
 /** Reports hub: report groups with real computed views where data exists. */
 function ReportsHub({ sales, catalog, role }: { sales: Sale[]; catalog: Product[]; role: StaffRole }) {
+  const [expenses, setExpenses] = useState<ExpenseLite[]>([]);
+  useEffect(() => { let alive = true; fetch("/api/expenses").then(r => r.ok ? r.json() : Promise.reject()).then(d => { if (alive) setExpenses(d as ExpenseLite[]); }).catch(() => {}); return () => { alive = false; }; }, []);
   const groups: { group: string; views: string[] }[] = [
     { group: "Sales", views: ["Sales Overview", "Sales Transactions", "Sales by Product", "Sales by Category", "Sales by Customer", "Sales by Cashier"] },
     { group: "Purchases", views: ["Purchase Summary", "Purchase by Product", "Purchase by Supplier", "Purchase Returns"] },
@@ -318,8 +426,9 @@ function ReportsHub({ sales, catalog, role }: { sales: Sale[]; catalog: Product[
       case "Stock Valuation": return <HubTable headers={["METRIC", "VALUE"]} empty="Catalog is empty" rows={[["Retail value", money(inventoryValue)], ["Cost value", money(inventoryCost)], ...(showMoney ? [["Potential margin", money(inventoryValue - inventoryCost)] as string[]] : [])]}/>; 
       case "Low Stock": return <HubTable headers={["PRODUCT", "SKU", "STOCK"]} empty="No low stock" rows={catalog.filter(p => p.stock > 0 && p.stock < 10).map(p => [p.name, p.sku, `${p.stock} units`])}/>; 
       case "Out of Stock": return <HubTable headers={["PRODUCT", "SKU", "STOCK"]} empty="Nothing out of stock" rows={catalog.filter(p => p.stock === 0).map(p => [p.name, p.sku, "0 units"])}/>; 
-      case "Profit & Loss": return <HubTable headers={["LINE", "AMOUNT"]} empty="No data" rows={showMoney ? [["Revenue", money(revenue)], ["Cost of goods sold", money(-cost)], ["Gross profit", money(revenue - cost)], ["Refunds", money(-refundAmt)], ["Net", money(revenue - cost - refundAmt)]] : [["Sign in as a manager", "—"]]} />; 
+      case "Profit & Loss": { const expenseTotal = expenses.reduce((n, e) => n + e.amount, 0); return <HubTable headers={["LINE", "AMOUNT"]} empty="No data" rows={showMoney ? [["Revenue", money(revenue)], ["Cost of goods sold", money(-cost)], ["Gross profit", money(revenue - cost)], ["Refunds", money(-refundAmt)], ["Operating expenses", money(-expenseTotal)], ["Net", money(revenue - cost - refundAmt - expenseTotal)]] : [["Sign in as a manager", "—"]]} />; } 
       case "Refunds": return <HubTable headers={["INVOICE", "CUSTOMER", "DATE", "AMOUNT", "REASON"]} empty="No refunds yet" rows={refunded.map(s => [s.id, s.customer, s.date, money(saleTotal(s)), s.refundReason || "—"])}/>; 
+      case "Expenses": return <HubTable headers={["ID", "DATE", "CATEGORY", "AMOUNT"]} empty="No expenses recorded yet" rows={[...expenses].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 40).map(e => [e.id, new Date(e.date).toLocaleDateString(), e.category, money(-e.amount)])}/>;  
       case "Customer Summary": case "Customer Sales": case "Customer Balance": return <HubTable headers={["CUSTOMER", "ORDERS", "SALES"]} empty="No customers yet" rows={groupBy("customer")}/>; 
       case "Loyalty Points": return <SoonPanel title="Loyalty points" what="Points accrual and redemption will be computed here once the loyalty module is built."/>; 
       case "Register Summary": case "Shift Report": { const cash = counted.filter(s => s.payment === "Cash").reduce((n, s) => n + saleTotal(s), 0); return <HubTable headers={["ITEM", "AMOUNT"]} empty="No data" rows={[["Cash sales", money(cash)], ["Card / ABA sales", money(revenue - cash)], ["Refunds", money(refundAmt)], ["Expected drawer cash", money(cash - refundAmt)]]}/>; } 
@@ -647,7 +756,7 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && query.trim()) { e.preventDefault(); const t = query.trim(); if (/^#?inv/i.test(t)) { setOrderSearch(t.replace(/^#/, "")); navigate("Transactions"); } else { navigate("Products"); setQuery(t); } } }} placeholder="Search products, orders..."/><kbd className="search-kbd">Ctrl K</kbd></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" ? <StockHub catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock}/> : active === "Cash Register" ? <Finance sales={sales}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" ? <StockHub catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock}/> : active === "Cash Register" ? <Finance sales={sales}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }
