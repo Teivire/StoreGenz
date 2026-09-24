@@ -270,6 +270,25 @@ const validators = {
       }
     }
   },
+  recurring_expenses: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "id", "category", "amount", "frequency", "note", "nextRun", "active", "createdBy", "createdAt"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        id: { bsonType: "string", pattern: "^REC-\\d+$" },
+        category: { bsonType: "string", minLength: 1 },
+        amount: { bsonType: "number", minimum: 0.01 },
+        frequency: { enum: ["weekly", "monthly"] },
+        note: { bsonType: "string", maxLength: 200 },
+        nextRun: { bsonType: "string" },
+        lastRun: { bsonType: "string" },
+        active: { bsonType: "bool" },
+        createdBy: { bsonType: "string" },
+        createdAt: { bsonType: "string" }
+      }
+    }
+  },
   customer_payments: {
     $jsonSchema: {
       bsonType: "object",
@@ -366,6 +385,9 @@ const indexes = {
   customer_payments: [
     { key: { date: -1 }, name: "date_-1" },
     { key: { customerId: 1, date: -1 }, name: "customerId_1_date_-1" }
+  ],
+  recurring_expenses: [
+    { key: { active: 1, nextRun: 1 }, name: "active_1_nextRun_1" }
   ]
 };
 

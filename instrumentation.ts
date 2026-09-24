@@ -26,4 +26,14 @@ export async function register() {
     // Backup is best-effort: report, but never block the server.
     console.warn("[auto-backup] skipped:", e instanceof Error ? e.message : e);
   }
+
+  // Recurring expenses (rent, utilities…): generate anything due, then advance
+  // each schedule. Idempotent — safe on every boot and dev restart.
+  try {
+    const { runDueRecurringExpenses } = await import("./lib/db");
+    const generated = await runDueRecurringExpenses();
+    if (generated > 0) console.log(`[recurring-expenses] generated ${generated} expense(s) due since the last run.`);
+  } catch (e) {
+    console.warn("[recurring-expenses] skipped:", e instanceof Error ? e.message : e);
+  }
 }

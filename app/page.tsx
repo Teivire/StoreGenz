@@ -86,6 +86,142 @@ type TransferLite = { id: string; sku: string; productName: string; qty: number;
 type CustomerLite = { id: string; name: string; phone: string; email: string; address: string; group: string; loyaltyPoints: number; note: string; createdBy: string; createdAt: string; updatedAt: string };
 type CustStatementLite = { id: string; name: string; group: string; phone: string; email: string; loyaltyPoints: number; owed: number; paid: number; balance: number; lastActivity: string };
 type MethodSetting = { name: string; enabled: boolean };
+type RecurringLite = { id: string; category: string; amount: number; frequency: "weekly" | "monthly"; note: string; nextRun: string; lastRun?: string; active: boolean; createdBy: string; createdAt: string };
+
+/** Expenses hub: real expense ledger (shared with Reports/Finance), recurring engine, category stats. */
+function ExpensesHub({ role }: { role: StaffRole }) {
+  const tabs = ["All Expenses", "Add Expense", "Expense Categories", "Recurring Expenses", "Expense Reports"] as const;
+  const [tab, setTab] = useState<(typeof tabs)[number]>("All Expenses");
+  const canManage = CAN.manageProducts(role);
+  const [formOpen, setFormOpen] = useState(false);
+  const [expenses, setExpenses] = useState<ExpenseLite[] | null>(null);
+  const [recurrings, setRecurrings] = useState<RecurringLite[] | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const load = useCallback(() => {
+    fetch("/api/expenses").then(r => r.ok ? r.json() : Promise.reject()).then(d => setExpenses(d as ExpenseLite[])).catch(() => setExpenses([]));
+    fetch("/api/recurring-expenses").then(r => r.ok ? r.json() : Promise.reject()).then(d => setRecurrings(d as RecurringLite[])).catch(() => setRecurrings([]));
+  }, []);
+  useEffect(load, [load]);
+  const list = expenses ?? [];
+  const total = list.reduce((n, e) => n + e.amount, 0);
+  const thisMonth = list.filter(e => e.date.slice(0, 7) === new Date().toISOString().slice(0, 7));
+  const categories = Array.from(new Set(list.map(e => e.category))).sort();
+  const catRows = categories.map(c => {
+    const inC = list.filter(e => e.category === c);
+    return [c, String(inC.length), money(inC.reduce((n, e) => n + e.amount, 0)), money(inC.filter(e => e.date.slice(0, 7) === new Date().toISOString().slice(0, 7)).reduce((n, e) => n + e.amount, 0))];
+  }).sort((a, b) => parseFloat(b[2].replace(/[$,]/g, "")) - parseFloat(a[2].replace(/[$,]/g, "")));
+  const monthTotal = thisMonth.reduce((n, e) => n + e.amount, 0);
+  // Simple 6-month trend from the real ledger.
+  const months: string[][] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(); d.setMonth(d.getMonth() - i);
+    const key = d.toISOString().slice(0, 7);
+    const amt = list.filter(e => e.date.slice(0, 7) === key).reduce((n, e) => n + e.amount, 0);
+    months.push([d.toLocaleDateString("en-US", { month: "short", year: "numeric" }), String(list.filter(e => e.date.slice(0, 7) === key).length), money(amt)]);
+  }
+  return <>
+    <PageHeading title="Expenses" sub="Operating expenses: one-off and recurring" action={canManage ? "Add expense" : undefined} onAction={() => setFormOpen(true)}/>
+    <div className="subnav subnav-wrap">
+      {tabs.map(t => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => { setTab(t); setNotice(null); }}>{t}</button>)}
+    </div>
+    {notice && <p className="checkout-success success-banner" role="status">{notice}</p>}
+    {tab === "All Expenses" && <div className="panel table-panel"><div className="toolbar"><strong>{expenses ? `${list.length} expense${list.length === 1 ? "" : "s"} · ${money(total)} all-time · ${money(monthTotal)} this month` : "Loading…"}</strong></div>
+      {!expenses ? <div className="empty">Loading…</div> : list.length === 0 ? <div className="empty">No expenses recorded yet — rent, utilities, and supplies will appear here.</div>
+        : <DataTable headers={["ID", "DATE", "CATEGORY", "NOTE", "AMOUNT"]} rows={[...list].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 60).map(e => [e.id, new Date(e.date).toLocaleDateString(), e.category, e.note || "—", money(e.amount)])}/>}
+    </div>}
+    {tab === "Add Expense" && (canManage ? <ExpenseFormInline onSaved={msg => { setNotice(msg); load(); setTab("All Expenses"); }}/> : <div className="panel empty-panel"><div className="empty"><strong>Managers only</strong><p>Ask a manager or administrator to record expenses.</p></div></div>)}
+    {tab === "Expense Categories" && <div className="panel table-panel"><div className="toolbar"><strong>{expenses ? `${categories.length} categories in use` : "Loading…"}</strong></div>
+      {!expenses ? <div className="empty">Loading…</div> : categories.length === 0 ? <div className="empty">No expenses yet.</div>
+        : <DataTable headers={["CATEGORY", "COUNT", "TOTAL", "THIS MONTH"]} rows={catRows}/>}
+    </div>}
+    {tab === "Recurring Expenses" && <RecurringExpensesView recurrings={recurrings} canManage={canManage} reload={load}/>}
+    {tab === "Expense Reports" && <>
+      <div className="panel table-panel"><div className="toolbar"><strong>Monthly total — last 6 months</strong></div>
+        {list.length === 0 ? <div className="empty">No data yet.</div> : <DataTable headers={["MONTH", "EXPENSES", "TOTAL"]} rows={months}/>}
+      </div>
+      <div className="panel table-panel" style={{ marginTop: 12 }}><div className="toolbar"><strong>By category — all time</strong></div>
+        {list.length === 0 ? <div className="empty">No data yet.</div> : <DataTable headers={["CATEGORY", "COUNT", "TOTAL", "THIS MONTH"]} rows={catRows}/>}
+      </div>
+    </>}
+    {formOpen && <ExpenseFormModal onClose={() => setFormOpen(false)} onSaved={msg => { setFormOpen(false); setNotice(msg); load(); }}/>}
+  </>;
+}
+
+function ExpenseFormInline({ onSaved }: { onSaved: (msg: string) => void }) {
+  return <div className="panel purchase-form-panel"><div className="toolbar"><strong>Record expense</strong></div><ExpenseFormBody onSaved={onSaved}/></div>;
+}
+/** Shared expense form body (used inline and in the modal). */
+function ExpenseFormBody({ onSaved }: { onSaved: (msg: string) => void }) {
+  const [form, setForm] = useState({ category: "Supplies", amount: "", note: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    const amount = Number(form.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return setError("Amount must be a positive number.");
+    setBusy(true); setError(null);
+    const res = await fetch("/api/expenses", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ category: form.category, amount, note: form.note }) });
+    const data = await res.json() as { error?: string; id?: string };
+    setBusy(false);
+    if (!res.ok) return setError(data.error ?? "Could not record the expense.");
+    onSaved(`Expense ${data.id} recorded.`);
+  };
+  return <>
+    <div className="form-grid">
+      <label>Category<select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>{EXPENSE_CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></label>
+      <label>Amount (USD)<input autoFocus type="number" min="0.01" step="0.01" placeholder="0.00" value={form.amount} onChange={e => { setForm({ ...form, amount: e.target.value }); setError(null); }}/></label>
+      <label style={{ gridColumn: "1 / -1" }}>Note (optional)<input placeholder="e.g. September electricity" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/></label>
+    </div>
+    {error && <p className="field-error" role="alert">{error}</p>}
+    <div className="modal-actions"><button className="primary-button" disabled={busy} onClick={submit}>{busy ? "Saving…" : "Record expense"}</button></div>
+  </>;
+}
+
+/** Recurring manager: templates, schedules, pause/resume; generation runs on boot. */
+function RecurringExpensesView({ recurrings, canManage, reload }: { recurrings: RecurringLite[] | null; canManage: boolean; reload: () => void }) {
+  const [formOpen, setFormOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const act = async (id: string, action: string) => {
+    setError(null);
+    const res = await fetch("/api/recurring-expenses", { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ id, action }) });
+    const data = await res.json() as { error?: string };
+    if (res.ok) reload(); else setError(data.error ?? "Action failed.");
+  };
+  return <div className="panel table-panel"><div className="toolbar"><strong>{recurrings ? `${(recurrings ?? []).filter(r => r.active).length} active template${(recurrings ?? []).filter(r => r.active).length === 1 ? "" : "s"} — generated automatically on server start` : "Loading…"}</strong>
+    {canManage && <button className="primary-button" onClick={() => setFormOpen(true)}><Plus size={15}/> New recurring</button>}</div>
+    {error && <p className="offline-banner error-banner" role="alert">{error}<button className="banner-close" aria-label="Dismiss" onClick={() => setError(null)}><X size={14}/></button></p>}
+    {!recurrings ? <div className="empty">Loading…</div> : recurrings.length === 0 ? <div className="empty">No recurring templates — set up rent or salaries once and they post themselves.</div>
+      : <div className="table-wrap"><table><thead><tr>{["ID", "CATEGORY", "AMOUNT", "FREQUENCY", "NEXT RUN", "STATUS", ""].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+        {recurrings.map(r => <tr key={r.id}><td><strong>{r.id}</strong></td><td>{r.category}{r.note && <span style={{ display: "block", color: "#9ba5ae", fontSize: 10 }}>{r.note}</span>}</td><td>{money(r.amount)}</td><td>{r.frequency}</td><td>{new Date(r.nextRun).toLocaleDateString()}</td><td>{r.active ? <span className="you-chip">active</span> : "paused"}</td>
+          <td>{canManage && <div className="row-actions"><button className="text-button" onClick={() => act(r.id, r.active ? "pause" : "resume")}>{r.active ? "Pause" : "Resume"}</button><button className="text-button danger" onClick={() => act(r.id, "delete")}>Delete</button></div>}</td></tr>)}
+      </tbody></table></div>}
+    {formOpen && <RecurringFormModal onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); reload(); }}/>}
+  </div>;
+}
+
+/** New recurring template: category, amount, weekly/monthly, first due date. */
+function RecurringFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [form, setForm] = useState({ category: "Rent", amount: "", frequency: "monthly", note: "", nextRun: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true); setError(null);
+    const res = await fetch("/api/recurring-expenses", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ ...form, amount: Number(form.amount), nextRun: form.nextRun ? new Date(form.nextRun).toISOString() : "" }) });
+    const data = await res.json() as { id?: string; error?: string };
+    if (res.ok) onSaved(); else { setError(data.error ?? "Could not save."); setBusy(false); }
+  };
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={e => e.stopPropagation()}>
+    <div className="modal-header"><h2>New recurring expense</h2><button aria-label="Close recurring form" onClick={onClose}><X size={18}/></button></div>
+    <div className="form-grid">
+      <label>Category<select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>{EXPENSE_CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></label>
+      <label>Amount (USD)<input type="number" min="0.01" step="0.01" placeholder="0.00" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })}/></label>
+      <label>Frequency<select value={form.frequency} onChange={e => setForm({ ...form, frequency: e.target.value })}><option value="monthly">Monthly</option><option value="weekly">Weekly</option></select></label>
+      <label>First due date<input type="date" value={form.nextRun} onChange={e => setForm({ ...form, nextRun: e.target.value })}/></label>
+      <label style={{ gridColumn: "1 / -1" }}>Note (optional)<input placeholder="e.g. Landlord — monthly rent" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/></label>
+    </div>
+    {error && <p className="field-error" role="alert">{error}</p>}
+    <div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy || !(Number(form.amount) > 0)} onClick={submit}>{busy ? "Saving…" : "Create template"}</button></div>
+  </div></div>;
+}
 
 /** Payments hub: one money-movement ledger across sales, refunds, customer and supplier payments. */
 function PaymentsHub({ sales, role }: { sales: Sale[]; role: StaffRole }) {
@@ -1287,7 +1423,7 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && query.trim()) { e.preventDefault(); const t = query.trim(); if (/^#?inv/i.test(t)) { setOrderSearch(t.replace(/^#/, "")); navigate("Transactions"); } else { navigate("Products"); setQuery(t); } } }} placeholder="Search products, orders..."/><kbd className="search-kbd">Ctrl K</kbd></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} methods={(settings.paymentMethods ?? []).filter(m => m.enabled).map(m => m.name)}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Payments" ? <PaymentsHub sales={sales} role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} methods={(settings.paymentMethods ?? []).filter(m => m.enabled).map(m => m.name)}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Payments" ? <PaymentsHub sales={sales} role={session.role}/> : active === "Expenses" ? <ExpensesHub role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }

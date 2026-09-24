@@ -55,8 +55,24 @@ export type Expense = {
   note: string;
   createdBy: string;
   createdAt: string;
+  recurringId?: string;  // set when generated from a recurring expense
 };
 export type StoredExpense = Expense & { _id: string };
+
+/** Recurring expense: template that generates real expenses on its schedule. */
+export type RecurringExpense = {
+  id: string;            // "REC-<n>"
+  category: string;
+  amount: number;        // positive money out
+  frequency: "weekly" | "monthly";
+  note: string;
+  nextRun: string;       // ISO date — when the next expense is generated
+  lastRun?: string;      // ISO date of the most recent generation
+  active: boolean;
+  createdBy: string;
+  createdAt: string;     // ISO
+};
+export type StoredRecurringExpense = RecurringExpense & { _id: string };
 
 /** Purchase order: supplier delivery, received into stock via the movement ledger. */
 export type PurchaseLine = { sku: string; name: string; qty: number; cost: number };
@@ -254,6 +270,10 @@ export async function getCustomerPaymentsCollection() {
   return (await getDb()).collection<StoredCustomerPayment>("customer_payments");
 }
 
+export async function getRecurringExpensesCollection() {
+  return (await getDb()).collection<StoredRecurringExpense>("recurring_expenses");
+}
+
 const DEFAULT_SETTINGS: StoreSettings = {
   name: "StoreGenz",
   location: "Phnom Penh",
@@ -287,6 +307,56 @@ export async function readSettings(): Promise<StoreSettings> {
   const doc = { _id: "settings" as const, ...DEFAULT_SETTINGS };
   await settings.insertOne(doc);
   return DEFAULT_SETTINGS;
+}
+
+/** Advances an ISO date by one frequency period. Weekly +7d; monthly clamps day-of-month (Jan 31 → Feb 28). */
+export function nextOccurrence(iso: string, frequency: "weekly" | "monthly"): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return new Date().toISOString();
+  if (frequency === "weekly") {
+    d.setUTCDate(d.getUTCDate() + 7);
+  } else {
+    const day = d.getUTCDate();
+    d.setUTCDate(1);
+    d.setUTCMonth(d.getUTCMonth() + 1);
+    const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+    d.setUTCDate(Math.min(day, lastDay));
+  }
+  return d.toISOString();
+}
+
+/**
+ * Generates due recurring expenses (managers' rent/utilities etc.) exactly once each:
+ * every generated expense is a separate EXP doc tagged with recurringId, and the
+ * schedule's nextRun advances past each occurrence. Safe to run repeatedly — a
+ * second run with the same nextRun generates nothing.
+ */
+export async function runDueRecurringExpenses(): Promise<number> {
+  await ensureSeeded();
+  const recurrings = await getRecurringExpensesCollection();
+  const expenses = await getExpensesCollection();
+  const now = new Date().toISOString();
+  let generated = 0;
+  const due = await recurrings.find({ active: true, nextRun: { $lte: now } }).toArray();
+  for (const r of due) {
+    // Catch-up: generate every missed occurrence up to today (bounded).
+    let cursor = r.nextRun;
+    for (let i = 0; i < 60 && cursor <= now; i++) {
+      const newest = await expenses.find({ id: /^EXP-/ }).sort({ _id: -1 }).limit(1).next();
+      const n = newest ? parseInt(newest.id.slice(4), 10) + 1 : 1;
+      const id = `EXP-${String(n).padStart(4, "0")}`;
+      await expenses.insertOne({
+        _id: id, id, date: cursor, category: r.category, amount: r.amount,
+        note: `${r.note || r.category} (recurring ${r.id})`,
+        createdBy: r.createdBy, createdAt: now, recurringId: r.id,
+      });
+      generated++;
+      const next = nextOccurrence(cursor, r.frequency);
+      cursor = next;
+      await recurrings.updateOne({ id: r.id }, { $set: { nextRun: next, lastRun: cursor <= now ? next : cursor } });
+    }
+  }
+  return generated;
 }
 
 /** Permission tiers, highest first. Cashiers sell and refund; managers run the catalog; admins manage people. */
