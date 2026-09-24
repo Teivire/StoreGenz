@@ -86,18 +86,20 @@ export async function POST(request: Request) {
     const sku = String(body.sku ?? "").trim().toUpperCase();
     const category = String(body.category ?? "").trim();
     const price = Number(body.price);
+    const cost = body.cost === undefined ? 0 : Number(body.cost);
     const stock = Number(body.stock);
     const image = typeof body.image === "string" ? body.image : "";
     if (!name) return bad("Product name is required.");
     if (!category) return bad("Category is required.");
     if (!Number.isFinite(price) || price <= 0) return bad("Price must be a positive number.");
+    if (!Number.isFinite(cost) || cost < 0) return bad("Cost must be zero or more.");
     if (!Number.isInteger(stock) || stock < 0) return bad("Stock must be zero or more.");
     if (!sku) return bad("SKU is required.");
     if (image && (!image.startsWith("data:image/") || image.length > 60_000)) return bad("Image must be a data URL under 60KB.");
 
     const products = await getProductsCollection();
     if (await products.findOne({ _id: sku })) return bad(`SKU ${sku} is already used by another product.`, 409);
-    const product: Product = image ? { name, sku, category, price, stock, image } : { name, sku, category, price, stock };
+    const product: Product = image ? { name, sku, category, price, cost, stock, image } : { name, sku, category, price, cost, stock };
     await products.insertOne({ ...product, _id: sku });
     return NextResponse.json(product, { status: 201 });
   } catch (e) {

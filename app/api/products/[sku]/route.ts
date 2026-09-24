@@ -9,7 +9,7 @@ export async function PATCH(request: Request, { params }: { params: { sku: strin
     await ensureSeeded();
     await requireStaff(request, "Manager");
     const sku = decodeURIComponent(params.sku).toUpperCase();
-    const body = await request.json() as { price?: number; category?: string; name?: string; stock?: number; stockDelta?: number; image?: string | null };
+    const body = await request.json() as { price?: number; cost?: number; category?: string; name?: string; stock?: number; stockDelta?: number; image?: string | null };
     const products = await getProductsCollection();
     const existing = await products.findOne({ _id: sku });
     if (!existing) return bad(`Product ${sku} not found.`, 404);
@@ -30,6 +30,11 @@ export async function PATCH(request: Request, { params }: { params: { sku: strin
       const price = Number(body.price);
       if (!Number.isFinite(price) || price <= 0) return bad("Price must be a positive number.");
       update.price = price;
+    }
+    if (body.cost !== undefined) {
+      const cost = Number(body.cost);
+      if (!Number.isFinite(cost) || cost < 0) return bad("Cost must be zero or more.");
+      update.cost = cost;
     }
     if (body.stock !== undefined) {
       const stock = Number(body.stock);

@@ -56,6 +56,14 @@ const CASES = [
   // payment form fields (own scratch product so the boundary block below starts pristine)
   ["sale defaults customer/payment when omitted", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }] }, 201, b => b.customer === "Walk-in customer" && b.payment === "Cash"],
   ["sale rejects unknown payment method", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }], payment: "Bitcoin" }, 400],
+  // discount semantics (price 1 × qty 1 → subtotal 1.00)
+  ["sale without discount reports discount 0", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }] }, 201, b => b.discount === 0 && b.saleTotal === 1],
+  ["sale applies discount to saleTotal", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 2 }], discount: 0.5 }, 201, b => b.discount === 0.5 && b.saleTotal === 1.5],
+  ["sale rejects negative discount", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }], discount: -1 }, 400],
+  ["sale rejects non-numeric discount", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }], discount: "x" }, 400],
+  ["sale rejects discount covering the whole subtotal", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }], discount: 99 }, 400],
+  ["sale snapshots line cost from catalog", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }] }, 201, b => b.lines.length === 1 && b.lines[0].cost === 0.25],
+  ["discounted cash sale computes change on net", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }], discount: 0.25, amountPaid: 5 }, 201, b => b.saleTotal === 0.75 && b.changeDue === 4.25],
   ["sale rejects cash short of total", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }], payment: "Cash", amountPaid: 0.5 }, 400],
   ["sale computes change server-side", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }], customer: "Contract Buyer", payment: "Cash", amountPaid: 5 }, 201, b => b.amountPaid === 5 && b.changeDue === 4 && b.customer === "Contract Buyer"],
   ["non-cash sale rejects amountPaid", "/api/sales", "POST", H, { lines: [{ sku: PAY_SKU, qty: 1 }], payment: "ABA Pay", amountPaid: 99 }, 400],
@@ -109,7 +117,7 @@ async function main() {
   // a second product with stock 10 hosts the payment-form cases
   const made = await req("/api/products", "POST", H, { name: "Contract Widget", sku: SKU, category: "Test", price: 1, stock: 5 });
   if (!made.ok) throw new Error(`setup failed: ${await made.text()}`);
-  const madePay = await req("/api/products", "POST", H, { name: "Contract Pay Widget", sku: PAY_SKU, category: "Test", price: 1, stock: 10 });
+  const madePay = await req("/api/products", "POST", H, { name: "Contract Pay Widget", sku: PAY_SKU, category: "Test", price: 1, cost: 0.25, stock: 10 });
   if (!madePay.ok) throw new Error(`setup (pay product) failed: ${await madePay.text()}`);
   const idByIndex = [];
 

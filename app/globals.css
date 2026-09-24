@@ -60,3 +60,22 @@
 .receipt-payline{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid #f0f2f4;font-size:11px;color:#334252}
 .receipt-payline span{color:var(--muted)}
 .receipt-payline.change strong{color:#168957}
+
+/* Dashboard overview: filter toolbar, 5-up KPIs, payment-method bars, print */
+.dash-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:-6px 0 20px}
+.dash-toolbar .select-wrap{flex-shrink:0}
+.dash-export{display:flex;gap:8px;margin-left:auto}
+.stats-grid.five{grid-template-columns:repeat(5,1fr)}
+.method-list{display:flex;flex-direction:column;gap:14px;margin-top:18px}
+.method-row{display:grid;grid-template-columns:86px 1fr 48px;align-items:center;gap:10px}
+.method-row>span{color:#566575;font-size:11px;font-weight:700}
+.method-row>strong{text-align:right;font-size:11px}
+.method-bar{height:8px;background:#f0f3f5;border-radius:5px;overflow:hidden}
+.method-bar i{display:block;height:100%;background:var(--green);border-radius:5px}
+@media(max-width:1100px){.stats-grid.five{grid-template-columns:repeat(2,1fr)}}
+@media print {
+  .dash-toolbar, .dash-export, .topbar, .sidebar { display: none !important; }
+  .page-heading .primary-button { display: none; }
+  .dashboard-grid{grid-template-columns:1fr 1fr;gap:14px}
+  .panel{box-shadow:none;break-inside:avoid}
+}

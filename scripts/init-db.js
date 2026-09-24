@@ -44,6 +44,7 @@ const validators = {
         sku: { bsonType: "string", minLength: 1 },
         category: { bsonType: "string", minLength: 1 },
         price: { bsonType: "number", minimum: 0 },
+        cost: { bsonType: "number", minimum: 0 },
         stock: { bsonType: "number", minimum: 0 },
         image: { bsonType: ["string", "null"] }
       }
@@ -74,6 +75,8 @@ const validators = {
         payment: { bsonType: "string" },
         status: { enum: ["Paid", "Pending", "Refunded"] },
         refundReason: { bsonType: "string" },
+        discount: { bsonType: "number", minimum: 0 },
+        saleTotal: { bsonType: "number", minimum: 0 },
         amountPaid: { bsonType: "number", minimum: 0 },
         changeDue: { bsonType: "number", minimum: 0 },
         lines: {
@@ -81,11 +84,12 @@ const validators = {
           minItems: 1,
           items: {
             bsonType: "object",
-            required: ["name", "sku", "price", "qty"],
+            required: ["name", "sku", "price", "cost", "qty"],
             properties: {
               name: { bsonType: "string" },
               sku: { bsonType: "string" },
               price: { bsonType: "number", minimum: 0 },
+              cost: { bsonType: "number", minimum: 0 },
               qty: { bsonType: "number", minimum: 1 }
             }
           }

@@ -2,19 +2,19 @@
 
 import {
   ArrowDownRight, ArrowUpRight, Bell, Box, BriefcaseBusiness, Building2, ChevronDown, ChevronUp,
-  CircleDollarSign, ClipboardList, CreditCard, FileBarChart, LayoutDashboard, LogOut, Menu,
+  CircleDollarSign, ClipboardList, CreditCard, Download, FileBarChart, LayoutDashboard, LogOut, Menu,
   Package, Plus, Printer, Search, Settings, ShoppingCart, Store, Tag, Truck, Users, X
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-type Product = { name: string; sku: string; category: string; price: number; stock: number; image?: string };
+type Product = { name: string; sku: string; category: string; price: number; cost: number; stock: number; image?: string };
 const seedProducts: Product[] = [
-  { name: "Premium Jasmine Rice 5kg", sku: "SKU-09231", category: "Groceries", price: 12.5, stock: 4 },
-  { name: "Coca Cola Original 330ml", sku: "SKU-00842", category: "Beverages", price: 0.75, stock: 48 },
-  { name: "Cambodia Beer Can 330ml", sku: "SKU-00128", category: "Beverages", price: 1.25, stock: 12 },
-  { name: "Angkor Mineral Water 1.5L", sku: "SKU-00419", category: "Beverages", price: 0.5, stock: 96 },
-  { name: "Palm Sugar 500g", sku: "SKU-00555", category: "Groceries", price: 3.2, stock: 25 },
-  { name: "Laundry Detergent 1kg", sku: "SKU-00783", category: "Household", price: 4.75, stock: 18 }
+  { name: "Premium Jasmine Rice 5kg", sku: "SKU-09231", category: "Groceries", price: 12.5, cost: 9.8, stock: 4 },
+  { name: "Coca Cola Original 330ml", sku: "SKU-00842", category: "Beverages", price: 0.75, cost: 0.45, stock: 48 },
+  { name: "Cambodia Beer Can 330ml", sku: "SKU-00128", category: "Beverages", price: 1.25, cost: 0.8, stock: 12 },
+  { name: "Angkor Mineral Water 1.5L", sku: "SKU-00419", category: "Beverages", price: 0.5, cost: 0.28, stock: 96 },
+  { name: "Palm Sugar 500g", sku: "SKU-00555", category: "Groceries", price: 3.2, cost: 2.1, stock: 25 },
+  { name: "Laundry Detergent 1kg", sku: "SKU-00783", category: "Household", price: 4.75, cost: 3.4, stock: 18 }
 ];
 const brandOf = (name: string) => name.split(" ")[0];
 const unitOf = (name: string) => (name.match(/\d+(?:\.\d+)?\s*(kg|g|ml|l)\b/i)?.[1] ?? "pc");
@@ -38,12 +38,13 @@ const seedStaff: StaffMember[] = [
   { name: "Dara K.", role: "Manager", permissions: "POS + inventory", status: "Active" }
 ];
 
-type SaleLine = { name: string; sku: string; price: number; qty: number };
-type SaleStatus = "Paid" | "Pending" | "Refunded";  type Sale = { id: string; customer: string; date: string; payment: string; status: SaleStatus; lines: SaleLine[]; refundReason?: string; servedBy?: string; createdAt?: string; amountPaid?: number; changeDue?: number };
-  /** What the payment form collects for one checkout. */
-  type SalePayment = { customer: string; payment: string; amountPaid?: number };
+type SaleLine = { name: string; sku: string; price: number; cost: number; qty: number };
+type SaleStatus = "Paid" | "Pending" | "Refunded";
+type Sale = { id: string; customer: string; date: string; payment: string; status: SaleStatus; discount?: number; lines: SaleLine[]; refundReason?: string; servedBy?: string; createdAt?: string; amountPaid?: number; changeDue?: number; saleTotal?: number };
+/** What the payment form collects for one checkout. */
+type SalePayment = { customer: string; payment: string; amountPaid?: number; discount?: number };
 
-const toLine = (p: Product, qty = 1): SaleLine => ({ name: p.name, sku: p.sku, price: p.price, qty });
+const toLine = (p: Product, qty = 1): SaleLine => ({ name: p.name, sku: p.sku, price: p.price, cost: p.cost, qty });
 const seedSales: Sale[] = [
   { id: "#INV-1048", customer: "Sokha Trading", date: "Today, 10:42 AM", payment: "Cash", status: "Paid", lines: [toLine(seedProducts[0], 16), toLine(seedProducts[3], 96)] },
   { id: "#INV-1047", customer: "Dara Market", date: "Today, 10:15 AM", payment: "ABA Pay", status: "Paid", lines: [toLine(seedProducts[4], 25), toLine(seedProducts[3], 13)] },
@@ -52,6 +53,9 @@ const seedSales: Sale[] = [
   { id: "#INV-1044", customer: "Vichea Mart", date: "Yesterday, 02:10 PM", payment: "Cash", status: "Refunded", refundReason: "Changed their mind", lines: [toLine(seedProducts[0], 1)] }
 ];
 const subtotal = (s: Sale) => s.lines.reduce((sum, l) => sum + l.price * l.qty, 0);
+/** Net money for the sale: subtotal minus any discount. Uses the sale-time snapshot when present. */
+const saleTotal = (s: Sale) => s.saleTotal ?? Math.round((subtotal(s) - (s.discount ?? 0)) * 100) / 100;
+const lineCost = (s: Sale) => s.lines.reduce((sum, l) => sum + (l.cost ?? 0) * l.qty, 0);
 const itemCount = (s: Sale) => s.lines.reduce((n, l) => n + l.qty, 0);
 const statusClass = (s: SaleStatus) => s === "Refunded" ? "refunded" : s === "Pending" ? "pending" : "paid";
 
@@ -64,7 +68,7 @@ const navGroups = [
   { title: "MANAGEMENT", items: [["Staff", BriefcaseBusiness], ["Settings", Settings]] }
 ] as const;
 
-const money = (n: number) => `$${n.toFixed(2)}`;
+const money = (n: number) => `${n < 0 ? "-" : ""}$${Math.abs(n).toFixed(2)}`;
 const pageInfo: Record<string, { title: string; subtitle: string; action?: string }> = {
   "Sales": { title: "Sales", subtitle: "Manage sales, returns, and customer receipts", action: "New sale" },
   "Purchases": { title: "Purchases", subtitle: "Track purchase orders and supplier deliveries", action: "New purchase" },
@@ -86,7 +90,6 @@ export default function Home() {
   const [catalog, setCatalog] = useState<Product[]>(seedProducts);
   const [staff, setStaff] = useState<StaffMember[]>(seedStaff);
   const [settings, setSettings] = useState<StoreSettings>(DEFAULT_SETTINGS);
-  const [stats, setStats] = useState<WeeklyStats | null>(null);
   const [dbOnline, setDbOnline] = useState<boolean | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -105,13 +108,12 @@ export default function Home() {
   const refreshAll = async () => {
     const gen = ++refreshGen.current;
     try {
-      const [pRes, sRes, stRes, sfRes, seRes] = await Promise.all([fetch("/api/products?all=1"), fetch("/api/sales"), fetch("/api/stats"), fetch("/api/staff"), fetch("/api/settings")]);
+      const [pRes, sRes, sfRes, seRes] = await Promise.all([fetch("/api/products?all=1"), fetch("/api/sales"), fetch("/api/staff"), fetch("/api/settings")]);
       if (!pRes.ok || !sRes.ok) throw new Error("API unavailable");
-      const [p, s, st, sf, se] = await Promise.all([pRes.json(), sRes.json(), stRes.ok ? stRes.json() : null, sfRes.json(), seRes.ok ? seRes.json() : null]);
+      const [p, s, sf, se] = await Promise.all([pRes.json(), sRes.json(), sfRes.json(), seRes.ok ? seRes.json() : null]);
       if (!mountedRef.current || gen !== refreshGen.current) return;
       setCatalog(p as Product[]);
       setSales(s as Sale[]);
-      setStats(st as WeeklyStats | null);
       setStaff(sf as StaffMember[]);
       if (se) setSettings(se as StoreSettings);
       setDbOnline(true);
@@ -177,13 +179,15 @@ export default function Home() {
 
   const recordSale = (lines: SaleLine[], payment: SalePayment, done?: (ok: boolean, sale?: Sale) => void) => {
     const prev = sales;
-    const saleTotal = lines.reduce((sum, l) => sum + l.price * l.qty, 0);
-    const local: Sale = { id: `#INV-${parseInt(prev[0].id.slice(5), 10) + 1}`, customer: payment.customer, date: "Just now", payment: payment.payment, status: "Paid", lines, ...(payment.amountPaid !== undefined ? { amountPaid: payment.amountPaid, changeDue: Math.max(0, Math.round((payment.amountPaid - saleTotal) * 100) / 100) } : {}) };
+    const gross = lines.reduce((sum, l) => sum + l.price * l.qty, 0);
+    const discount = Math.min(payment.discount ?? 0, gross);
+    const net = Math.round((gross - discount) * 100) / 100;
+    const local: Sale = { id: `#INV-${parseInt(prev[0].id.slice(5), 10) + 1}`, customer: payment.customer, date: "Just now", payment: payment.payment, status: "Paid", discount, lines, saleTotal: net, ...(payment.amountPaid !== undefined ? { amountPaid: payment.amountPaid, changeDue: Math.max(0, Math.round((payment.amountPaid - net) * 100) / 100) } : {}) };
     let created: Sale | undefined;
     applyOrRollback(
       () => setSales([local, ...prev]),
       async () => {
-        const res = await authFetch("/api/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lines, customer: payment.customer, payment: payment.payment, ...(payment.amountPaid !== undefined ? { amountPaid: payment.amountPaid } : {}) }) });
+        const res = await authFetch("/api/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lines, customer: payment.customer, payment: payment.payment, ...(discount > 0 ? { discount } : {}), ...(payment.amountPaid !== undefined ? { amountPaid: payment.amountPaid } : {}) }) });
         if (res.ok) created = await res.json() as Sale;
         return res;
       },
@@ -213,7 +217,7 @@ export default function Home() {
       () => setCatalog(isNew ? [p, ...prev] : prev.map(x => x.sku === p.sku ? p : x)),
       () => isNew
         ? authFetch("/api/products", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) })
-        : authFetch(`/api/products/${encodeURIComponent(p.sku)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: p.name, category: p.category, price: p.price, stock: p.stock }) }),
+        : authFetch(`/api/products/${encodeURIComponent(p.sku)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: p.name, category: p.category, price: p.price, cost: p.cost, stock: p.stock }) }),
       () => setCatalog(prev),
       isNew ? "Product not added" : "Product not updated",
       () => { refreshAll(); done?.(true); },
@@ -294,44 +298,217 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search anything..."/></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className="page-content">{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} stats={stats} userName={session.name}/> : active === "Products" ? <Products catalog={catalog} query={query} onQuery={setQuery} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Sales" ?<Sales catalog={catalog} sales={sales} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency}/> : active === "Reports" ? <Reports sales={sales} catalog={catalog}/> : active === "Finance" ? <Finance sales={sales}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <div className="page-content">{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "Products" ? <Products catalog={catalog} query={query} onQuery={setQuery} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Sales" ?<Sales catalog={catalog} sales={sales} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Reports" ? <Reports sales={sales} catalog={catalog}/> : active === "Finance" ? <Finance sales={sales}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }
 
-type WeeklyStats = {
-  today: { revenue: number; orders: number; items: number };
-  lastWeekSame: { revenue: number; orders: number };
-  week: { day: string; revenue: number; orders: number }[];
-  avgOrderValue: { today: number; lastWeekSame: number };
-  refunds: { count: number; amount: number };
-  expenses: { today: number };
+const canViewMoney = (r: StaffRole) => r === "Manager" || r === "Administrator";
+
+/** Escapes a CSV cell: quotes doubled, formula-leading characters neutralized. */
+const csvCell = (v: string) => (/^[=+\-@]/.test(v) ? `'` : "") + `"${v.replace(/"/g, '""')}"`;
+
+const download = (filename: string, mime: string, data: string) => {
+  const url = URL.createObjectURL(new Blob(["\ufeff" + data], { type: mime }));
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
 };
 
-const pctChange = (now: number, before: number) => {
-  if (before === 0) return null; // no baseline → no meaningful percentage
-  return Math.round(((now - before) / before) * 1000) / 10;
+const exportCSV = (rows: Record<string, string>[], filename: string) => {
+  if (rows.length === 0) return;
+  const headers = Object.keys(rows[0]);
+  download(filename, "text/csv;charset=utf-8", [headers.join(","), ...rows.map(r => headers.map(h => csvCell(r[h] ?? "")).join(","))].join("\r\n"));
 };
 
-function Dashboard({ navigate, sales, catalog, stats, userName }: { navigate: (s: string) => void; sales: Sale[]; catalog: Product[]; stats: WeeklyStats | null; userName: string }) {
-  const revenueChange = stats ? pctChange(stats.today.revenue, stats.lastWeekSame.revenue) : null;
-  const ordersChange = stats ? pctChange(stats.today.orders, stats.lastWeekSame.orders) : null;
-  const aovChange = stats ? pctChange(stats.avgOrderValue.today, stats.avgOrderValue.lastWeekSame) : null;
-  const refundShare = stats && stats.today.orders + stats.refunds.count > 0
-    ? Math.round((stats.refunds.count / (stats.today.orders + stats.refunds.count)) * 1000) / 10
-    : null;
-  const maxRevenue = stats ? Math.max(...stats.week.map(d => d.revenue), 1) : 0;
-  const maxOrders = stats ? Math.max(...stats.week.map(d => d.orders), 1) : 0;
+const exportExcel = (rows: Record<string, string>[], sheetTitle: string) => {
+  if (rows.length === 0) return;
+  const headers = Object.keys(rows[0]);
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Worksheet ss:Name="${esc(sheetTitle).slice(0, 31)}"><Table>
+<Row>${headers.map(h => `<Cell><Data ss:Type="String">${esc(h)}</Data></Cell>`).join("")}</Row>
+${rows.map(r => `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${esc(r[h] ?? "")}</Data></Cell>`).join("")}</Row>`).join("\n")}
+</Table></Worksheet></Workbook>`;
+  download(`${sheetTitle.toLowerCase().replace(/\s+/g, "-")}.xls`, "application/vnd.ms-excel", xml);
+};
 
-  return <><div className="page-heading"><div><p className="eyebrow">{new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }).toUpperCase()}</p><h1>Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}, {userName} <span>👋</span></h1><p className="subtitle">Here&apos;s what&apos;s happening with your store today.</p></div><button className="primary-button" onClick={() => navigate("Sales")}><Plus size={18}/> New sale</button></div>
-    <section className="stats-grid">
-      <Stat label="Today's sales" value={stats ? money(stats.today.revenue) : "…"} change={revenueChange === null ? "no baseline" : `${revenueChange >= 0 ? "+" : ""}${revenueChange}%`} icon={CircleDollarSign} tone="green" negative={revenueChange !== null && revenueChange < 0}/>
-      <Stat label="Today's orders" value={stats ? String(stats.today.orders) : "…"} change={ordersChange === null ? "no baseline" : `${ordersChange >= 0 ? "+" : ""}${ordersChange}%`} icon={ShoppingCart} tone="blue" negative={ordersChange !== null && ordersChange < 0}/>
-      <Stat label="Avg order value" value={stats ? money(stats.avgOrderValue.today) : "…"} change={aovChange === null ? "no baseline" : `${aovChange >= 0 ? "+" : ""}${aovChange}%`} icon={ArrowUpRight} tone="purple" negative={aovChange !== null && aovChange < 0}/>
-      <Stat label="Refunds (14 days)" value={stats ? money(stats.refunds.amount) : "…"} change={refundShare === null ? "none yet" : `${refundShare}%`} caption={refundShare === null ? "no refunds in period" : "of orders"} icon={CreditCard} tone="orange" negative={(stats?.refunds.count ?? 0) > 0}/>
+function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s: string) => void; sales: Sale[]; catalog: Product[]; role: StaffRole; userName: string }) {
+  // ---- Filters -------------------------------------------------------------
+  const [range, setRange] = useState<ReportRange>("today");
+  const [rangeOpen, setRangeOpen] = useState(false);
+  const [cashier, setCashier] = useState("All cashiers");
+  const [cashierOpen, setCashierOpen] = useState(false);
+  const [category, setCategory] = useState("All categories");
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const [payment, setPayment] = useState("All payments");
+  const [paymentOpen, setPaymentOpen] = useState(false);
+
+  const DAY = 86_400_000;
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const rangeStart = range === "all" ? 0 : todayStart.getTime() - (range === "today" ? 0 : (range as 7 | 30) - 1) * DAY;
+  const rangeLabel = range === "today" ? "Today" : range === "all" ? "All time" : `Last ${range} days`;
+  const categories = Array.from(new Set(catalog.map(p => p.category))).sort();
+  const payments = Array.from(new Set(sales.map(s => s.payment))).sort();
+  const cashiers = Array.from(new Set(sales.map(s => s.servedBy).filter((x): x is string => !!x))).sort();
+
+  // Category filtering is applied per line — a mixed-category sale contributes its
+  // matching lines to KPIs, charts, and tables alike.
+  const inRange = (s: Sale) => range === "all" || (s.createdAt ? new Date(s.createdAt).getTime() >= rangeStart : false);
+  const passes = (s: Sale) => {
+    if (!inRange(s)) return false;
+    if (cashier !== "All cashiers" && s.servedBy !== cashier) return false;
+    if (payment !== "All payments" && s.payment !== payment) return false;
+    if (category === "All categories") return true;
+    return s.lines.some(l => catalog.find(p => p.sku === l.sku)?.category === category);
+  };
+  const visible = sales.filter(s => passes(s));
+  const keptLines = (s: Sale) => category === "All categories" ? s.lines : s.lines.filter(l => catalog.find(p => p.sku === l.sku)?.category === category);
+
+  // ---- Aggregates (refunds never count as revenue; Pending is not yet income) ----
+  const counted = visible.filter(s => s.status !== "Refunded");
+  const refunds = visible.filter(s => s.status === "Refunded");
+  const gross = counted.reduce((sum, s) => sum + saleTotal(s), 0);
+  const refundedAmount = refunds.reduce((sum, s) => sum + saleTotal(s), 0);
+  const net = gross - refundedAmount;
+  const units = counted.reduce((n, s) => n + itemCount(s), 0);
+
+  // ---- Payment-method mix (share of net sales incl. pending; falls back to legacy docs) ----
+  const byMethod = new Map<string, number>();
+  for (const s of visible) {
+    const amount = s.status === "Refunded" ? 0 : saleTotal(s);
+    if (amount <= 0) continue;
+    byMethod.set(s.payment, (byMethod.get(s.payment) ?? 0) + amount);
+  }
+  const methodTotal = Array.from(byMethod.values()).reduce((a, b) => a + b, 0);
+  const methodRows = Array.from(byMethod.entries())
+    .map(([m, v]) => ({ method: m, value: v, pct: methodTotal > 0 ? Math.round((v / methodTotal) * 1000) / 10 : 0 }))
+    .sort((a, b) => b.value - a.value);
+
+  // ---- Sales trend: daily buckets for day ranges, monthly for all time ----
+  const dated = counted.filter(s => s.createdAt);
+  const undated = counted.length - dated.length;
+  const buckets = new Map<string, { label: string; revenue: number; sort: number }>();
+  for (const s of dated) {
+    const t = new Date(s.createdAt as string).getTime();
+    const d = new Date(t);
+    const key = range === "all" ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` : d.toDateString();
+    const row = buckets.get(key) ?? { label: "", revenue: 0, sort: t };
+    row.revenue += saleTotal(s);
+    buckets.set(key, row);
+  }
+  // Honest zero bars for day ranges (only "today" has a single bucket).
+  if (range === 7 || range === 30) {
+    for (let i = 0; i < range; i++) {
+      const d = new Date(todayStart.getTime() - ((range as 7 | 30) - 1 - i) * DAY);
+      const key = d.toDateString();
+      if (!buckets.has(key)) buckets.set(key, { label: "", revenue: 0, sort: d.getTime() });
+    }
+  }
+  const trend = Array.from(buckets.values()).sort((a, b) => a.sort - b.sort);
+  for (const b of trend) {
+    const d = new Date(b.sort);
+    b.label = range === "all"
+      ? d.toLocaleDateString("en-US", { month: "short", year: "2-digit" })
+      : range === 30 ? String(d.getDate()) : range === 7 ? d.toLocaleDateString("en-US", { weekday: "short" }) : d.toLocaleTimeString("en-US", { hour: "numeric" });
+  }
+  const labelEvery = trend.length > 16 ? 5 : 1;
+  const maxRevenue = Math.max(...trend.map(d => d.revenue), 1);
+
+  // ---- Top products & staff performance ----
+  const byProduct = new Map<string, { name: string; qty: number; revenue: number }>();
+  for (const s of counted) for (const l of keptLines(s)) {
+    const row = byProduct.get(l.sku) ?? { name: l.name, qty: 0, revenue: 0 };
+    row.qty += l.qty; row.revenue += l.price * l.qty;
+    byProduct.set(l.sku, row);
+  }
+  const topProducts = Array.from(byProduct.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+  const byStaff = new Map<string, { orders: number; sales: number; discounts: number; refunds: number; profit: number }>();
+  for (const s of visible) {
+    const who = s.servedBy ?? "Unattributed";
+    const row = byStaff.get(who) ?? { orders: 0, sales: 0, discounts: 0, refunds: 0, profit: 0 };
+    if (s.status === "Refunded") {
+      row.refunds += saleTotal(s);
+    } else {
+      row.orders += 1;
+      row.sales += saleTotal(s);
+      row.discounts += s.discount ?? 0;
+      const cost = lineCost(s) * (category === "All categories" ? 1 : keptLines(s).length / Math.max(s.lines.length, 1));
+      row.profit += saleTotal(s) - cost;
+    }
+    byStaff.set(who, row);
+  }
+  const staffRows = Array.from(byStaff.entries()).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.sales - a.sales);
+
+  // ---- Export data (current filter state) ----
+  const exportRows = visible.map(s => ({
+    Invoice: s.id, Date: s.date, Customer: s.customer, Cashier: s.servedBy ?? "",
+    Payment: s.payment, Status: s.status, Discount: (s.discount ?? 0).toFixed(2),
+    Items: String(itemCount(s)), Total: saleTotal(s).toFixed(2)
+  }));
+  const hasCostData = catalog.some(p => p.cost > 0);
+
+  return <>
+    <div className="page-heading">
+      <div>
+        <p className="eyebrow">{new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }).toUpperCase()}</p>
+        <h1>Sales overview <span>👋</span></h1>
+        <p className="subtitle">Welcome back, {userName} — here&apos;s how the store is performing.</p>
+      </div>
+      <button className="primary-button" onClick={() => navigate("Sales")}><Plus size={18}/> New sale</button>
+    </div>
+
+    <div className="dash-toolbar">
+      <div className="select-wrap"><button className="select-button" onClick={()=>setRangeOpen(o=>!o)}>{rangeLabel} <ChevronDown size={14}/></button>{rangeOpen && <><button className="menu-backdrop" aria-label="Close range menu" onClick={()=>setRangeOpen(false)}/><div className="select-menu">{(["today",7,30,"all"] as ReportRange[]).map(r=><button key={String(r)} className={range===r?"on":""} onClick={()=>{setRange(r);setRangeOpen(false);}}>{r === "today" ? "Today" : r === "all" ? "All time" : `Last ${r} days`}</button>)}</div></>}</div>
+      <div className="select-wrap"><button className="select-button" onClick={()=>setCashierOpen(o=>!o)}>{cashier} <ChevronDown size={14}/></button>{cashierOpen && <><button className="menu-backdrop" aria-label="Close cashier menu" onClick={()=>setCashierOpen(false)}/><div className="select-menu">{["All cashiers",...cashiers].map(c=><button key={c} className={cashier===c?"on":""} onClick={()=>{setCashier(c);setCashierOpen(false);}}>{c}</button>)}</div></>}</div>
+      <div className="select-wrap"><button className="select-button" onClick={()=>setCategoryOpen(o=>!o)}>{category} <ChevronDown size={14}/></button>{categoryOpen && <><button className="menu-backdrop" aria-label="Close category menu" onClick={()=>setCategoryOpen(false)}/><div className="select-menu">{["All categories",...categories].map(c=><button key={c} className={category===c?"on":""} onClick={()=>{setCategory(c);setCategoryOpen(false);}}>{c}</button>)}</div></>}</div>
+      <div className="select-wrap"><button className="select-button" onClick={()=>setPaymentOpen(o=>!o)}>{payment} <ChevronDown size={14}/></button>{paymentOpen && <><button className="menu-backdrop" aria-label="Close payment menu" onClick={()=>setPaymentOpen(false)}/><div className="select-menu">{["All payments",...payments].map(m=><button key={m} className={payment===m?"on":""} onClick={()=>{setPayment(m);setPaymentOpen(false);}}>{m}</button>)}</div></>}</div>
+      <div className="dash-export">
+        <button className="outline-button" onClick={()=>exportCSV(exportRows, `sales-${rangeLabel.toLowerCase().replace(/\s+/g,"-")}.csv`)}><Download size={14}/> CSV</button>
+        <button className="outline-button" onClick={()=>exportExcel(exportRows, "Sales overview")}><Download size={14}/> Excel</button>
+        <button className="outline-button print-hide" onClick={()=>window.print()}><Printer size={14}/> PDF</button>
+      </div>
+    </div>
+
+    <section className="stats-grid five">
+      <Stat label="Total" value={money(gross)} change={range === "today" ? "today so far" : "gross sales"} caption={rangeLabel.toLowerCase()} icon={CircleDollarSign} tone="green"/>
+      <Stat label="Orders" value={String(counted.length)} change={`${units} items sold`} caption={rangeLabel.toLowerCase()} icon={ShoppingCart} tone="blue"/>
+      <Stat label="Items" value={String(units)} change={`${counted.length} orders`} caption={rangeLabel.toLowerCase()} icon={Package} tone="purple"/>
+      <Stat label="Refunds" value={money(refundedAmount)} change={`${refunds.length} refund${refunds.length===1?"":"s"}`} caption={rangeLabel.toLowerCase()} icon={ArrowDownRight} tone="orange" negative={refunds.length>0}/>
+      <Stat label="Net sales" value={money(net)} change="gross minus refunds" caption={rangeLabel.toLowerCase()} icon={ArrowUpRight} tone="green" negative={net<0}/>
     </section>
-    <section className="dashboard-grid"><div className="panel"><PanelHeader title="Sales overview" sub="Revenue performance over the last 7 days" action="View all" onAction={()=>navigate("Sales")}/><div className="chart-legend"><span><i className="legend-dot revenue"/>Revenue</span><span><i className="legend-dot orders"/>Orders</span></div><div className="chart"><div className="y-axis"><span>{money(maxRevenue)}</span><span>{money(maxRevenue * 0.75)}</span><span>{money(maxRevenue * 0.5)}</span><span>{money(maxRevenue * 0.25)}</span><span>{money(0)}</span></div><div className="chart-area"><div className="grid-lines">{[1,2,3,4].map(x=><i key={x}/>)}</div><div className="bars">{(stats?.week ?? []).map((d,i)=><div className="bar-group" key={i}><div className="bar revenue-bar" style={{height:`${(d.revenue/maxRevenue)*100}%`}}/><div className="bar orders-bar" style={{height:`${(d.orders/maxOrders)*100}%`}}/><span>{d.day}</span></div>)}</div></div></div></div><div className="panel"><PanelHeader title="Low stock items" sub="Products that need your attention" action="View all" onAction={()=>navigate("Inventory")}/><div className="stock-list">{catalog.filter(p=>p.stock<15).map(p=><div className="stock-item" key={p.sku}><div className="product-placeholder"><Package size={18}/></div><div className="stock-name"><strong>{p.name}</strong><span>{p.sku}</span></div><div className="stock-count"><strong className={p.stock<6?"critical":""}>{p.stock}</strong><span>units left</span></div></div>)}</div><button className="outline-button" onClick={()=>navigate("Inventory")}>Adjust inventory <ArrowUpRight size={15}/></button></div></section>
-    <div className="panel transactions-panel"><PanelHeader title="Recent transactions" sub="Your latest sales and payment activity" action="View all transactions" onAction={()=>navigate("Sales")}/><DataTable headers={["INVOICE","CUSTOMER","DATE","PAYMENT","AMOUNT","STATUS"]} rows={sales.slice(0,4).map(s=>[s.id,s.customer,s.date,s.payment,money(subtotal(s)),s.status])}/></div></>;
+
+    <section className="dashboard-grid">
+      <div className="panel">
+        <PanelHeader title="Sales trend" sub={`Revenue per ${range === "all" ? "month" : "day"} — ${rangeLabel.toLowerCase()}, refunds excluded`}/>
+        <div className="chart"><div className="y-axis"><span>{money(maxRevenue)}</span><span>{money(maxRevenue*0.75)}</span><span>{money(maxRevenue*0.5)}</span><span>{money(maxRevenue*0.25)}</span><span>{money(0)}</span></div>
+          <div className="chart-area"><div className="grid-lines">{[1,2,3,4].map(x=><i key={x}/>)}
+            <div className="bars">{trend.map((d,i)=><div className="bar-group" key={i}><div className="bar revenue-bar" style={{height:`${(d.revenue/maxRevenue)*100}%`}}/><span>{i % labelEvery === 0 ? d.label : ""}</span></div>)}</div>
+          </div></div></div>
+        {undated > 0 && <p className="form-intro">{undated} sale{undated===1?"":"s"} without timestamps can&apos;t be placed on the trend chart.</p>}
+      </div>
+      <div className="panel">
+        <PanelHeader title="Payment methods" sub={`Share of ${rangeLabel.toLowerCase()} sales`}/>
+        {methodRows.length===0 ? <div className="empty">No sales in this range.</div> : <div className="method-list">{methodRows.map(m=>
+          <div className="method-row" key={m.method}><span>{m.method}</span><div className="method-bar"><i style={{width:`${m.pct}%`}}/></div><strong>{m.pct}%</strong></div>)}</div>}
+      </div>
+    </section>
+
+    <section className="dashboard-grid">
+      <div className="panel table-panel">
+        <PanelHeader title="Top products" sub="Best sellers in the current view"/>
+        {topProducts.length===0 ? <div className="empty">No sales in this range.</div> : <DataTable headers={["PRODUCT","UNITS","REVENUE"]} rows={topProducts.map(r=>[r.name,String(r.qty),money(r.revenue)])}/>}
+      </div>
+      <div className="panel table-panel">
+        <PanelHeader title="Staff performance" sub={canViewMoney(role) ? "Sales by team member" : "Sales by team member (totals only)"}/>
+        {staffRows.length===0 ? <div className="empty">No sales in this range.</div> : <DataTable headers={canViewMoney(role) ? ["STAFF","ORDERS","SALES","DISCOUNTS","REFUNDS","PROFIT"] : ["STAFF","ORDERS","SALES"]} rows={staffRows.map(r=>canViewMoney(role)
+          ? [r.name,String(r.orders),money(r.sales),r.discounts>0?`-${money(r.discounts).slice(1)}`:"—",r.refunds>0?money(r.refunds):"—",money(Math.round(r.profit*100)/100)]
+          : [r.name,String(r.orders),money(r.sales)])}/>}
+      </div>
+    </section>
+  </>;
 }
 
 type ProductsTab = "products" | "categories" | "brands" | "units" | "variants" | "stock";
@@ -410,7 +587,7 @@ function Products({ catalog, query, onQuery, onUpsert, onDelete, onAdjust, canMa
   {serverError && <p className="offline-banner" role="alert">{serverError}</p>}
   {tab==="products" && <div className="panel table-panel"><div className="toolbar"><strong>{serverItems ? `${serverMeta.total} products` : `${localMatches.length} products`}</strong><div className="filter"><Search size={15}/><input placeholder="Filter products" value={query} onChange={e=>{onQuery(e.target.value);setPage(1);}}/></div><div className="select-wrap"><button className="select-button" onClick={()=>setCatOpen(o=>!o)}>{category} <ChevronDown size={14}/></button>{catOpen && <><button className="menu-backdrop" aria-label="Close category menu" onClick={()=>setCatOpen(false)}/><div className="select-menu"><button className={category==="All categories"?"on":""} onClick={()=>{setCategory("All categories");setPage(1);setCatOpen(false);}}>All categories</button>{categories.map(c=><button key={c} className={category===c?"on":""} onClick={()=>{setCategory(c);setPage(1);setCatOpen(false);}}>{c}</button>)}</div></>}</div></div>
     {rows.length===0 ? <div className="empty">{loadingPage ? "Loading…" : "No products match your filters."}</div> :
-    <div className="table-wrap"><table><thead><tr>{["","PRODUCT","SKU","CATEGORY","PRICE","STOCK","STATUS",""].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map(p=><tr key={p.sku} className={loadingPage?"row-loading":""}>
+    <div className="table-wrap"><table><thead><tr>{["","PRODUCT","SKU","CATEGORY","PRICE","STOCK","STATUS",""].map((h,i)=><th key={i}>{h}</th>)}</tr></thead><tbody>{rows.map(p=><tr key={p.sku} className={loadingPage?"row-loading":""}>
       <td><div className="cell-media">{p.image?<img src={p.image} alt=""/>:<div className="product-placeholder"><Package size={16}/></div>}</div></td><td><strong>{p.name}</strong></td><td>{p.sku}</td><td>{p.category}</td><td>{money(p.price)}</td><td>{p.stock} units</td>
       <td><span className={`status ${p.stock===0?"refunded":p.stock<10?"pending":"paid"}`}>{p.stock===0?"Out of stock":p.stock<10?"Low stock":"In stock"}</span></td>
       <td><div className="row-actions">{canManage ? [<button key="e" className="text-button" onClick={()=>{setBanner(null);setEditing(p);}}>Edit</button>, <button key="d" className="text-button danger" onClick={()=>{setBanner(null);setDeleting(p);}}>Delete</button>] : <span className="you-chip">view only</span>}</div></td>
@@ -446,7 +623,7 @@ function StockAdjustment({ catalog, onAdjust, onDone }: { catalog: Product[]; on
 }
 
 function ProductFormModal({ catalog, initial, onClose, onSave }: { catalog: Product[]; initial: Product | null; onClose: () => void; onSave: (p: Product, done: (ok: boolean) => void) => void }) {
-  const [form, setForm] = useState({ name: initial?.name ?? "", sku: initial?.sku ?? nextSku(catalog), category: initial?.category ?? "", price: initial !== null ? String(initial.price) : "", stock: initial !== null ? String(initial.stock) : "", image: initial?.image ?? "" });
+  const [form, setForm] = useState({ name: initial?.name ?? "", sku: initial?.sku ?? nextSku(catalog), category: initial?.category ?? "", price: initial !== null ? String(initial.price) : "", cost: initial !== null ? String(initial.cost ?? 0) : "", stock: initial !== null ? String(initial.stock) : "", image: initial?.image ?? "" });
   const [error, setError] = useState<string | null>(null);
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => { setForm({ ...form, [k]: e.target.value }); setError(null); };
   // Downscale the chosen file to a small JPEG data URL so documents stay light (API caps at 60KB).
@@ -481,21 +658,22 @@ function ProductFormModal({ catalog, initial, onClose, onSave }: { catalog: Prod
   };
   const submit = () => {
     const name = form.name.trim(), category = form.category.trim(), sku = form.sku.trim().toUpperCase();
-    const price = parseFloat(form.price), stock = parseInt(form.stock, 10);
+    const price = parseFloat(form.price), stock = parseInt(form.stock, 10), cost = form.cost.trim() === "" ? 0 : parseFloat(form.cost);
     if (!name) return setError("Product name is required.");
     if (!category) return setError("Category is required.");
     if (!Number.isFinite(price) || price <= 0) return setError("Price must be a positive number.");
+    if (!Number.isFinite(cost) || cost < 0) return setError("Cost must be zero or more.");
     if (!Number.isInteger(stock) || stock < 0) return setError("Stock must be zero or more.");
     if (!sku) return setError("SKU is required.");
     if (catalog.some(p => p.sku === sku && p.sku !== initial?.sku)) return setError(`SKU ${sku} is already used by another product.`);
-    onSave({ name, sku, category, price, stock, ...(form.image ? { image: form.image } : {}) }, ok => { if (ok) onClose(); else setError("Could not save this product — see the message at the top of the page."); });
+    onSave({ name, sku, category, price, cost, stock, ...(form.image ? { image: form.image } : {}) }, ok => { if (ok) onClose(); else setError("Could not save this product — see the message at the top of the page."); });
   };
-  return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>{initial ? "Edit product" : "Add product"}</h2><button aria-label="Close product form" onClick={onClose}><X size={18}/></button></div><div className="form-grid"><label>Name<input autoFocus placeholder="e.g. Iced Green Tea 500ml" value={form.name} onChange={set("name")}/></label><label>SKU<input placeholder="Auto-generated" value={form.sku} onChange={set("sku")}/></label><label>Category<input placeholder="e.g. Beverages" list="category-options" value={form.category} onChange={set("category")}/><datalist id="category-options">{Array.from(new Set(catalog.map(p=>p.category))).map(c=><option key={c} value={c}/>)}</datalist></label><label>Price (USD)<input type="number" min="0.01" step="0.01" placeholder="0.00" value={form.price} onChange={set("price")}/></label><label>Stock (units)<input type="number" min="0" placeholder="0" value={form.stock} onChange={set("stock")}/></label><div className="image-picker" style={{ gridColumn: "1 / -1" }}>{form.image?<img src={form.image} alt="Product preview"/>:<div className="image-placeholder"><Package size={22}/></div>}<div className="image-actions"><label className="outline-button image-label">Choose image<input type="file" accept="image/*" style={{ display: "none" }} onChange={e=>{pickImage(e.target.files?.[0]); e.target.value = "";}}/></label>{form.image&&<button type="button" className="outline-button" onClick={()=>{setForm(f=>({...f,image:""}));setError(null);}}>Remove</button>}</div></div></div>{error && <p className="field-error" role="alert">{error}</p>}<div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={submit}>{initial ? "Save changes" : "Add product"}</button></div></div></div>;
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>{initial ? "Edit product" : "Add product"}</h2><button aria-label="Close product form" onClick={onClose}><X size={18}/></button></div><div className="form-grid"><label>Name<input autoFocus placeholder="e.g. Iced Green Tea 500ml" value={form.name} onChange={set("name")}/></label><label>SKU<input placeholder="Auto-generated" value={form.sku} onChange={set("sku")}/></label><label>Category<input placeholder="e.g. Beverages" list="category-options" value={form.category} onChange={set("category")}/><datalist id="category-options">{Array.from(new Set(catalog.map(p=>p.category))).map(c=><option key={c} value={c}/>)}</datalist></label><label>Price (USD)<input type="number" min="0.01" step="0.01" placeholder="0.00" value={form.price} onChange={set("price")}/></label><label>Cost (USD)<input type="number" min="0" step="0.01" placeholder="0.00" value={form.cost} onChange={set("cost")}/></label><label>Stock (units)<input type="number" min="0" placeholder="0" value={form.stock} onChange={set("stock")}/></label><div className="image-picker" style={{ gridColumn: "1 / -1" }}>{form.image?<img src={form.image} alt="Product preview"/>:<div className="image-placeholder"><Package size={22}/></div>}<div className="image-actions"><label className="outline-button image-label">Choose image<input type="file" accept="image/*" style={{ display: "none" }} onChange={e=>{pickImage(e.target.files?.[0]); e.target.value = "";}}/></label>{form.image&&<button type="button" className="outline-button" onClick={()=>{setForm(f=>({...f,image:""}));setError(null);}}>Remove</button>}</div></div></div>{error && <p className="field-error" role="alert">{error}</p>}<div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={submit}>{initial ? "Save changes" : "Add product"}</button></div></div></div>;
 }
 
 type SalesTab = "pos" | "history" | "returns" | "receipts";
 
-function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, receiptFooter, currency }: { catalog: Product[]; sales: Sale[]; onRecord: (lines: SaleLine[], payment: SalePayment, done?: (ok: boolean, sale?: Sale) => void) => void; onRefund: (id: string, reason: string, done?: (ok: boolean) => void) => void; storeName: string; storeLocation: string; receiptFooter: string; currency: string }) {
+function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, receiptFooter, currency, role }: { catalog: Product[]; sales: Sale[]; onRecord: (lines: SaleLine[], payment: SalePayment, done?: (ok: boolean, sale?: Sale) => void) => void; onRefund: (id: string, reason: string, done?: (ok: boolean) => void) => void; storeName: string; storeLocation: string; receiptFooter: string; currency: string; role: StaffRole }) {
   const [tab, setTab] = useState<SalesTab>("pos");
   const [historyQuery, setHistoryQuery] = useState("");
   const [cart, setCart] = useState<SaleLine[]>([]);
@@ -537,47 +715,55 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
   {refundDone && <p className="checkout-success success-banner" role="status">Refund for {refundDone} recorded successfully.</p>}
   {tab==="pos" && <div className="pos-layout"><div className="panel product-picker"><div className="toolbar"><h2>Choose products</h2><div className="filter"><Search size={15}/><input value={productQuery} onChange={e=>setProductQuery(e.target.value)} placeholder="Search products"/></div></div><div className="picker-grid">{visibleProducts.map(p=>{const inCart=cart.find(l=>l.sku===p.sku)?.qty??0;const left=p.stock-inCart;return <button key={p.sku} className="picker-card" disabled={left<=0} onClick={()=>{setJustCheckedOut(null);setCart(c=>c.some(l=>l.sku===p.sku)?c.map(l=>l.sku===p.sku?{...l,qty:l.qty+1}:l):[...c,toLine(p)]);}}><div className="picker-thumb">{p.image?<img src={p.image} alt=""/>:<div className="product-placeholder"><Package size={20}/></div>}</div><strong>{p.name}</strong><span>{money(p.price)} · {left<=0?"none left":"in stock: "+left}</span></button>;})}{visibleProducts.length===0&&<div className="empty">No products match your search.</div>}</div></div><div className="panel cart-panel"><div className="panel-header"><h2>Current sale</h2><span className="status paid">{cart.reduce((n,l)=>n+l.qty,0)} items</span></div>{cart.length===0?<div className="empty">Your cart is empty</div>:<div className="cart-lines">{cart.map((l,i)=><div className="cart-line" key={l.sku}><div><strong>{l.name}</strong><span>{money(l.price)} × {l.qty}</span></div><button aria-label={`Remove ${l.name}`} onClick={()=>setCart(c=>c.filter((_,idx)=>idx!==i))}><X size={14}/></button></div>)}</div>}<div className="cart-total"><span>Subtotal</span><strong>{money(total)}</strong></div>{justCheckedOut&&<p className="checkout-success" role="status">Sale {justCheckedOut.id} recorded.{justCheckedOut.changeDue ? ` Change due ${money(justCheckedOut.changeDue)}.` : ""}</p>}<button className="primary-button checkout" disabled={cart.length===0||busy} onClick={openPayment}>{busy ? "Charging…" : `Charge ${money(total)}`}</button></div></div>}
   {tab==="history" && <div className="panel table-panel"><div className="toolbar"><strong>{historyQuery ? `${historyMatches.length} of ${sales.length} sales` : `${sales.length} sales`}</strong><div className="filter"><Search size={15}/><input placeholder="Search invoice or customer" value={historyQuery} onChange={e=>setHistoryQuery(e.target.value)}/>{historyQuery&&<button className="filter-clear" aria-label="Clear sales search" onClick={()=>setHistoryQuery("")}><X size={13}/></button>}</div></div>{historyMatches.length===0?<div className="empty">No sales match your search.</div>:<SalesTable sales={historyMatches} onView={setViewing} onRefund={startRefund}/>}</div>}
-  {tab==="returns" && <><div className="panel table-panel"><div className="toolbar"><strong>Refundable sales</strong><div className="filter"><Search size={15}/><input placeholder="Search sales" readOnly/></div><button className="select-button">All payments <ChevronDown size={14}/></button></div>{refundable.length===0?<div className="empty">Nothing left to refund.</div>:<SalesTable sales={refundable} onView={setViewing} onRefund={startRefund}/>}</div><div className="panel table-panel"><div className="toolbar"><strong>{refunds.length} refunds</strong></div>{refunds.length===0?<div className="empty">No refunds yet.</div>:<DataTable headers={["INVOICE","CUSTOMER","DATE","REFUNDED","REASON","STATUS"]} rows={refunds.map(s=>[s.id,s.customer,s.date,money(subtotal(s)),s.refundReason||"—","Refunded"])}/>}</div></>}
-  {tab==="receipts" && <div className="receipts-grid">{sales.map(s=><div className="panel receipt-card" key={s.id}><div className="receipt-card-head"><strong>{s.id}</strong><span className={`status ${statusClass(s.status)}`}>{s.status}</span></div><p>{s.customer} · {s.date}</p><div className="receipt-card-total"><span>{itemCount(s)} items</span><strong>{money(subtotal(s))}</strong></div><button className="outline-button" onClick={()=>setViewing(s)}>View receipt</button></div>)}</div>}
+  {tab==="returns" && <><div className="panel table-panel"><div className="toolbar"><strong>Refundable sales</strong><div className="filter"><Search size={15}/><input placeholder="Search sales" readOnly/></div><button className="select-button">All payments <ChevronDown size={14}/></button></div>{refundable.length===0?<div className="empty">Nothing left to refund.</div>:<SalesTable sales={refundable} onView={setViewing} onRefund={startRefund}/>}</div><div className="panel table-panel"><div className="toolbar"><strong>{refunds.length} refunds</strong></div>{refunds.length===0?<div className="empty">No refunds yet.</div>:<DataTable headers={["INVOICE","CUSTOMER","DATE","REFUNDED","REASON","STATUS"]} rows={refunds.map(s=>[s.id,s.customer,s.date,money(saleTotal(s)),s.refundReason||"—","Refunded"])}/>}</div></>}
+  {tab==="receipts" && <div className="receipts-grid">{sales.map(s=><div className="panel receipt-card" key={s.id}><div className="receipt-card-head"><strong>{s.id}</strong><span className={`status ${statusClass(s.status)}`}>{s.status}</span></div><p>{s.customer} · {s.date}</p><div className="receipt-card-total"><span>{itemCount(s)} items</span><strong>{money(saleTotal(s))}</strong></div><button className="outline-button" onClick={()=>setViewing(s)}>View receipt</button></div>)}</div>}
   {viewing && <ReceiptModal sale={viewing} onClose={()=>setViewing(null)} onRefund={startRefund} storeName={storeName} storeLocation={storeLocation} receiptFooter={receiptFooter} currency={currency}/>}
-  {paying && <PaymentModal total={total} itemCount={cart.reduce((n,l)=>n+l.qty,0)} currency={currency} busy={busy} onClose={()=>setPaying(false)} onConfirm={doCheckout}/>}
-  {refunding && <div className="modal-backdrop" onClick={()=>setRefunding(null)}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>Refund {refunding.id}</h2><button aria-label="Close refund dialog" onClick={()=>setRefunding(null)}><X size={18}/></button></div><p className="refund-summary">Refunding <strong>{money(subtotal(refunding))}</strong> ({itemCount(refunding)} items) from <strong>{refunding.customer}</strong> back via {refunding.payment}.</p><label>Reason<textarea autoFocus placeholder="e.g. Damaged goods, customer changed their mind" value={refundNote} onChange={e=>setRefundNote(e.target.value)}/></label><div className="modal-actions"><button className="outline-button" onClick={()=>setRefunding(null)}>Cancel</button><button className="primary-button" disabled={busy} onClick={confirmRefund}>{busy ? "Refunding…" : `Confirm refund ${money(subtotal(refunding))}`}</button></div></div></div>}</>;
+  {paying && <PaymentModal total={total} itemCount={cart.reduce((n,l)=>n+l.qty,0)} currency={currency} role={role} busy={busy} onClose={()=>setPaying(false)} onConfirm={doCheckout}/>}
+  {refunding && <div className="modal-backdrop" onClick={()=>setRefunding(null)}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>Refund {refunding.id}</h2><button aria-label="Close refund dialog" onClick={()=>setRefunding(null)}><X size={18}/></button></div><p className="refund-summary">Refunding <strong>{money(saleTotal(refunding))}</strong> ({itemCount(refunding)} items) from <strong>{refunding.customer}</strong> back via {refunding.payment}.</p><label>Reason<textarea autoFocus placeholder="e.g. Damaged goods, customer changed their mind" value={refundNote} onChange={e=>setRefundNote(e.target.value)}/></label><div className="modal-actions"><button className="outline-button" onClick={()=>setRefunding(null)}>Cancel</button><button className="primary-button" disabled={busy} onClick={confirmRefund}>{busy ? "Refunding…" : `Confirm refund ${money(saleTotal(refunding))}`}</button></div></div></div>}</>;
 }
 
 function SalesTable({ sales, onView, onRefund }: { sales: Sale[]; onView: (s: Sale) => void; onRefund: (s: Sale) => void }) {
-  return <div className="table-wrap"><table><thead><tr>{["INVOICE","CUSTOMER","DATE","PAYMENT","AMOUNT","STATUS",""].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{sales.map(s=><tr key={s.id}><td><strong>{s.id}</strong></td><td>{s.customer}</td><td>{s.date}</td><td>{s.payment}</td><td>{money(subtotal(s))}</td><td><span className={`status ${statusClass(s.status)}`}>{s.status}</span></td><td><div className="row-actions"><button className="text-button" onClick={()=>onView(s)}>Receipt</button>{s.status!=="Refunded"&&<button className="text-button danger" onClick={()=>onRefund(s)}>Refund</button>}</div></td></tr>)}</tbody></table></div>;
+  return <div className="table-wrap"><table><thead><tr>{["INVOICE","CUSTOMER","DATE","PAYMENT","AMOUNT","STATUS",""].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{sales.map(s=><tr key={s.id}><td><strong>{s.id}</strong></td><td>{s.customer}</td><td>{s.date}</td><td>{s.payment}</td><td>{money(saleTotal(s))}</td><td><span className={`status ${statusClass(s.status)}`}>{s.status}</span></td><td><div className="row-actions"><button className="text-button" onClick={()=>onView(s)}>Receipt</button>{s.status!=="Refunded"&&<button className="text-button danger" onClick={()=>onRefund(s)}>Refund</button>}</div></td></tr>)}</tbody></table></div>;
 }
 
-/** Checkout confirmation: payment method, customer, cash handling — then record. */
-function PaymentModal({ total, itemCount, currency, busy, onClose, onConfirm }: { total: number; itemCount: number; currency: string; busy: boolean; onClose: () => void; onConfirm: (p: SalePayment) => void }) {
+/** Checkout confirmation: payment method, customer, discount (managers+), cash handling — then record. */
+function PaymentModal({ total, itemCount, currency, role, busy, onClose, onConfirm }: { total: number; itemCount: number; currency: string; role: StaffRole; busy: boolean; onClose: () => void; onConfirm: (p: SalePayment) => void }) {
   const METHODS = ["Cash", "ABA Pay", "Credit"] as const;
   const [customer, setCustomer] = useState("");
   const [method, setMethod] = useState<string>("Cash");
+  const [discount, setDiscount] = useState("");
   const [cash, setCash] = useState("");
   const [error, setError] = useState<string | null>(null);
   const cur = (n: number) => `${currency}${n.toFixed(2)}`;
+  const discountNum = canViewMoney(role) && discount.trim() !== "" ? Number(discount) : 0;
+  const invalidDiscount = discount.trim() !== "" && (!Number.isFinite(discountNum) || (discountNum as number) < 0);
+  const overDiscount = Number.isFinite(discountNum) && discountNum > total;
+  const netTotal = Math.round((total - Math.min(Math.max(discountNum, 0), total)) * 100) / 100;
   const paidNum = method === "Cash" && cash.trim() !== "" ? Number(cash) : undefined;
   const invalidCash = method === "Cash" && cash.trim() !== "" && (!Number.isFinite(paidNum) || (paidNum as number) < 0);
-  const change = paidNum !== undefined && Number.isFinite(paidNum) ? Math.max(0, paidNum - total) : undefined;
-  const short = paidNum !== undefined && Number.isFinite(paidNum) && paidNum + 0.005 < total;
+  const change = paidNum !== undefined && Number.isFinite(paidNum) ? Math.max(0, paidNum - netTotal) : undefined;
+  const short = paidNum !== undefined && Number.isFinite(paidNum) && paidNum + 0.005 < netTotal;
   const confirm = () => {
+    if (invalidDiscount) return setError("Discount must be zero or more.");
     if (invalidCash) return setError("Cash received must be a non-negative number.");
-    if (short) return setError(`Cash received is less than the total (${cur(total)}).`);
+    if (short) return setError(`Cash received is less than the total (${cur(netTotal)}).`);
     setError(null);
-    onConfirm({ customer: customer.trim(), payment: method, ...(method === "Cash" && cash.trim() !== "" && Number.isFinite(paidNum) ? { amountPaid: paidNum } : {}) });
+    onConfirm({ customer: customer.trim(), payment: method, ...(discountNum > 0 && Number.isFinite(discountNum) ? { discount: discountNum } : {}), ...(method === "Cash" && cash.trim() !== "" && Number.isFinite(paidNum) ? { amountPaid: paidNum } : {}) });
   };
   return <div className="modal-backdrop" onClick={busy ? undefined : onClose}><div className="modal payment-modal" onClick={e=>e.stopPropagation()}>
     <div className="modal-header"><h2>Confirm payment</h2>{!busy&&<button aria-label="Close payment dialog" onClick={onClose}><X size={18}/></button>}</div>
-    <p className="refund-summary">{itemCount} item{itemCount===1?"":"s"} · total <strong>{cur(total)}</strong></p>
+    <p className="refund-summary">{itemCount} item{itemCount===1?"":"s"} · total <strong>{cur(netTotal)}</strong></p>
     <div className="pay-methods" role="radiogroup" aria-label="Payment method">{METHODS.map(m => <button key={m} role="radio" aria-checked={method===m} className={`pay-method ${method===m?"on":""}`} onClick={()=>{setMethod(m);setError(null);}}>{m}</button>)}</div>
     <label>Customer name<input placeholder="Walk-in customer" value={customer} disabled={busy} onChange={e=>{setCustomer(e.target.value);setError(null);}}/></label>
+    {canViewMoney(role)&&<label>Discount{method!=="Cash"&&<span className="you-chip"> · applied to the total</span>}<input inputMode="decimal" placeholder="0.00" value={discount} disabled={busy} onChange={e=>{setDiscount(e.target.value.replace(/[^\d.]/g,""));setError(null);}}/></label>}
+    {(discountNum>0||overDiscount)&&Number.isFinite(discountNum)&&<div className="pay-change"><span>{overDiscount?"Discount exceeds the total":"Discount"}</span><strong className={overDiscount?"short":""}>{cur(Math.min(discountNum as number, total))}</strong></div>}
     {method==="Cash"&&<>
-      <label>Cash received<input autoFocus inputMode="decimal" placeholder={cur(total)} value={cash} disabled={busy} onChange={e=>{setCash(e.target.value.replace(/[^\d.]/g,""));setError(null);}}/></label>
-      {paidNum!==undefined&&Number.isFinite(paidNum)&&<div className="pay-change"><span>Change due</span><strong className={short?"short":""}>{short?`Short ${cur(total-paidNum)}`:cur(change as number)}</strong></div>}
+      <label>Cash received<input autoFocus inputMode="decimal" placeholder={cur(netTotal)} value={cash} disabled={busy} onChange={e=>{setCash(e.target.value.replace(/[^\d.]/g,""));setError(null);}}/></label>
+      {paidNum!==undefined&&Number.isFinite(paidNum)&&<div className="pay-change"><span>Change due</span><strong className={short?"short":""}>{short?`Short ${cur(netTotal-paidNum)}`:cur(change as number)}</strong></div>}
     </>}
     {method==="Credit"&&<p className="form-intro">Credit sales are recorded as Pending until payment is collected.</p>}
     {error&&<p className="field-error" role="alert">{error}</p>}
-    <div className="modal-actions"><button className="outline-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy||invalidCash} onClick={confirm}>{busy?"Charging…":`Confirm ${cur(total)}`}</button></div>
+    <div className="modal-actions"><button className="outline-button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy||invalidCash||invalidDiscount||overDiscount} onClick={confirm}>{busy?"Charging…":`Confirm ${cur(netTotal)}`}</button></div>
   </div></div>;
 }
 
@@ -588,7 +774,7 @@ function ReceiptModal({ sale, onClose, onRefund, storeName, storeLocation, recei
     return () => { document.body.classList.remove("print-receipt"); };
   }, []);
   const cur = (n: number) => `${currency}${n.toFixed(2)}`;
-  return <div className="modal-backdrop" onClick={onClose}><div className="modal receipt-modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>Receipt {sale.id}</h2><button aria-label="Close receipt" onClick={onClose}><X size={18}/></button></div><p className="receipt-store"><strong>{storeName}</strong>{storeLocation&&` · ${storeLocation}`}</p><p className="receipt-meta">{sale.customer} · {sale.date} · Paid by {sale.payment}{sale.servedBy ? ` · Served by ${sale.servedBy}` : ""}</p><div className="receipt-lines">{sale.lines.map(l=><div className="receipt-line" key={l.sku}><span>{l.name} <em>× {l.qty}</em></span><strong>{cur(l.price*l.qty)}</strong></div>)}</div><div className="receipt-total"><span>Total</span><strong>{cur(subtotal(sale))}</strong></div>{sale.amountPaid!==undefined&&<div className="receipt-payline"><span>Paid by {sale.payment}</span><strong>{cur(sale.amountPaid)}</strong></div>}{sale.changeDue!==undefined&&sale.changeDue>0&&<div className="receipt-payline change"><span>Change due</span><strong>{cur(sale.changeDue)}</strong></div>}<p className="receipt-status">Status: <span className={`status ${statusClass(sale.status)}`}>{sale.status}</span>{sale.status==="Refunded"&&<em> · {sale.refundReason}</em>}</p>{receiptFooter&&<p className="receipt-footer">{receiptFooter}</p>}<div className="modal-actions"><button className="outline-button" onClick={()=>window.print()}><Printer size={15}/>Print</button><button className="outline-button" onClick={onClose}>Close</button>{sale.status!=="Refunded"&&<button className="primary-button" onClick={()=>onRefund(sale)}>Process refund</button>}</div></div></div>;
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal receipt-modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>Receipt {sale.id}</h2><button aria-label="Close receipt" onClick={onClose}><X size={18}/></button></div><p className="receipt-store"><strong>{storeName}</strong>{storeLocation&&` · ${storeLocation}`}</p><p className="receipt-meta">{sale.customer} · {sale.date} · Paid by {sale.payment}{sale.servedBy ? ` · Served by ${sale.servedBy}` : ""}</p><div className="receipt-lines">{sale.lines.map(l=><div className="receipt-line" key={l.sku}><span>{l.name} <em>× {l.qty}</em></span><strong>{cur(l.price*l.qty)}</strong></div>)}</div>{(sale.discount??0)>0&&<div className="receipt-payline"><span>Discount</span><strong>-{cur(sale.discount as number).slice(1)}</strong></div>}<div className="receipt-total"><span>Total</span><strong>{cur(saleTotal(sale))}</strong></div>{sale.amountPaid!==undefined&&<div className="receipt-payline"><span>Paid by {sale.payment}</span><strong>{cur(sale.amountPaid)}</strong></div>}{sale.changeDue!==undefined&&sale.changeDue>0&&<div className="receipt-payline change"><span>Change due</span><strong>{cur(sale.changeDue)}</strong></div>}<p className="receipt-status">Status: <span className={`status ${statusClass(sale.status)}`}>{sale.status}</span>{sale.status==="Refunded"&&<em> · {sale.refundReason}</em>}</p>{receiptFooter&&<p className="receipt-footer">{receiptFooter}</p>}<div className="modal-actions"><button className="outline-button" onClick={()=>window.print()}><Printer size={15}/>Print</button><button className="outline-button" onClick={onClose}>Close</button>{sale.status!=="Refunded"&&<button className="primary-button" onClick={()=>onRefund(sale)}>Process refund</button>}</div></div></div>;
 }
 
 const ROLES = ["Administrator", "Manager", "Cashier"] as const;
@@ -660,18 +846,18 @@ function LoginScreen({ onLogin, settings }: { onLogin: (name: string, role: Staf
   </div></div>;
 }
 
-type ReportsTab = "sales" | "products" | "inventory";
-type ReportRange = 7 | 30 | "all";
+type ReportsTab = "products" | "inventory";
+type ReportRange = "today" | 7 | 30 | "all";
 
 function Reports({ sales, catalog }: { sales: Sale[]; catalog: Product[] }) {
-  const [tab, setTab] = useState<ReportsTab>("sales");
+  const [tab, setTab] = useState<ReportsTab>("products");
   const [productQuery, setProductQuery] = useState("");
   const [range, setRange] = useState<ReportRange>(30);
   const [rangeOpen, setRangeOpen] = useState(false);
 
   const DAY = 86_400_000;
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-  const rangeStart = range === "all" ? 0 : todayStart.getTime() - (range - 1) * DAY;
+  const rangeStart = range === "all" ? 0 : todayStart.getTime() - ((range as 7 | 30) - 1) * DAY;
   const tsOf = (s: Sale) => s.createdAt ? new Date(s.createdAt).getTime() : NaN;
   const inRange = (s: Sale) => range === "all" || (Number.isFinite(tsOf(s)) && tsOf(s) >= rangeStart);
   const rangeLabel = range === "all" ? "all time" : `last ${range} days`;
@@ -679,11 +865,11 @@ function Reports({ sales, catalog }: { sales: Sale[]; catalog: Product[] }) {
   // Money on refunds goes out the door, so refunds are subtracted from revenue and
   // never counted as orders; refunded sale lines stay out of product rankings.
   const counted = sales.filter(s => s.status !== "Refunded" && inRange(s));
-  const revenue = counted.reduce((sum, s) => sum + subtotal(s), 0);
+  const revenue = counted.reduce((sum, s) => sum + saleTotal(s), 0);
   const orders = counted.length;
   const unitsSold = counted.reduce((n, s) => n + itemCount(s), 0);
   const refunds = sales.filter(s => s.status === "Refunded" && inRange(s));
-  const refundAmount = refunds.reduce((sum, s) => sum + subtotal(s), 0);
+  const refundAmount = refunds.reduce((sum, s) => sum + saleTotal(s), 0);
   const refundRate = orders + refunds.length > 0 ? Math.round((refunds.length / (orders + refunds.length)) * 1000) / 10 : 0;
 
   // Daily buckets for day ranges; monthly buckets when viewing all time.
@@ -697,13 +883,13 @@ function Reports({ sales, catalog }: { sales: Sale[]; catalog: Product[] }) {
       ? d.toLocaleDateString("en-US", { month: "short", year: "2-digit" })
       : range === 7 ? d.toLocaleDateString("en-US", { weekday: "short" }) : String(d.getDate());
     const row = buckets.get(key) ?? { label, revenue: 0, sort: tsOf(s) };
-    row.revenue += subtotal(s);
+    row.revenue += saleTotal(s);
     buckets.set(key, row);
   }
   // Fill the empty days so the chart shows honest gaps.
   if (range !== "all") {
-    for (let i = 0; i < range; i++) {
-      const d = new Date(todayStart.getTime() - (range - 1 - i) * DAY);
+    for (let i = 0; i < (range as 7 | 30); i++) {
+      const d = new Date(todayStart.getTime() - ((range as 7 | 30) - 1 - i) * DAY);
       const key = d.toDateString();
       if (!buckets.has(key)) buckets.set(key, { label: range === 7 ? d.toLocaleDateString("en-US", { weekday: "short" }) : String(d.getDate()), revenue: 0, sort: d.getTime() });
     }
@@ -727,26 +913,10 @@ function Reports({ sales, catalog }: { sales: Sale[]; catalog: Product[] }) {
 
   return <><PageHeading title="Reports" sub="Understand your store performance"/>
     <div className="subnav">
-      <button className={`tab ${tab==="sales"?"active":""}`} onClick={()=>setTab("sales")}>Sales performance</button>
       <button className={`tab ${tab==="products"?"active":""}`} onClick={()=>setTab("products")}>Product performance</button>
       <button className={`tab ${tab==="inventory"?"active":""}`} onClick={()=>setTab("inventory")}>Inventory health</button>
       <div className="select-wrap range-wrap"><button className="select-button" onClick={()=>setRangeOpen(o=>!o)}>{range === "all" ? "All time" : `Last ${range} days`} <ChevronDown size={14}/></button>{rangeOpen && <><button className="menu-backdrop" aria-label="Close range menu" onClick={()=>setRangeOpen(false)}/><div className="select-menu">{([7,30,"all"] as ReportRange[]).map(r=><button key={String(r)} className={range===r?"on":""} onClick={()=>{setRange(r);setRangeOpen(false);}}>{r === "all" ? "All time" : `Last ${r} days`}</button>)}</div></>}</div>
     </div>
-    {tab==="sales" && <>
-      <section className="stats-grid">
-        <Stat label="Total revenue" value={money(revenue)} change={`${orders} paid orders`} icon={CircleDollarSign} tone="green"/>
-        <Stat label="Units sold" value={String(unitsSold)} change={`${productRows.length} products sold`} icon={Package} tone="blue"/>
-        <Stat label="Refunded" value={money(refundAmount)} change={`${refundRate}%`} caption="refund rate" icon={CreditCard} tone="orange" negative={refunds.length>0}/>
-        <Stat label="Avg order value" value={orders>0?money(revenue/orders):money(0)} change="all time" icon={ArrowUpRight} tone="purple"/>
-      </section>
-      <div className="panel"><PanelHeader title={`Revenue — ${rangeLabel}`} sub="Paid sales only — refunds excluded"/>
-        <div className="chart"><div className="y-axis"><span>{money(maxRevenue)}</span><span>{money(maxRevenue*0.75)}</span><span>{money(maxRevenue*0.5)}</span><span>{money(maxRevenue*0.25)}</span><span>{money(0)}</span></div>
-          <div className="chart-area"><div className="grid-lines">{[1,2,3,4].map(x=><i key={x}/>)}
-            <div className="bars">{week.map((d,i)=><div className="bar-group" key={i}><div className="bar revenue-bar" style={{height:`${(d.revenue/maxRevenue)*100}%`}}/><span>{i % labelEvery === 0 ? d.label : ""}</span></div>)}</div>
-          </div></div></div>
-        {undated > 0 && <p className="form-intro">{undated} sale{undated===1?"":"s"} without timestamps can&apos;t be placed on the chart or in a date range — use “All time” totals which include them.</p>}
-      </div>
-    </>}
     {tab==="products" && <div className="panel table-panel"><div className="toolbar"><strong>{productQuery?`${filteredProducts.length} of ${productRows.length} products`:`${productRows.length} products sold · ${rangeLabel}`}</strong><div className="filter"><Search size={15}/><input placeholder="Search product or SKU" value={productQuery} onChange={e=>setProductQuery(e.target.value)}/>{productQuery&&<button className="filter-clear" aria-label="Clear product search" onClick={()=>setProductQuery("")}><X size={13}/></button>}</div></div>
       {filteredProducts.length===0?<div className="empty">No products match your search.</div>:<DataTable headers={["PRODUCT","SKU","UNITS SOLD","REVENUE"]} rows={filteredProducts.map(r=>[r.name,r.sku,String(r.qty),money(r.revenue)])}/>}
     </div>}
@@ -771,11 +941,11 @@ function Finance({ sales }: { sales: Sale[] }) {
 
   const counted = sales.filter(s => s.status !== "Refunded");
   const refunds = sales.filter(s => s.status === "Refunded");
-  const income = counted.reduce((sum, s) => sum + subtotal(s), 0);
-  const refunded = refunds.reduce((sum, s) => sum + subtotal(s), 0);
+  const income = counted.reduce((sum, s) => sum + saleTotal(s), 0);
+  const refunded = refunds.reduce((sum, s) => sum + saleTotal(s), 0);
   const net = income - refunded;
   const pending = sales.filter(s => s.status === "Pending");
-  const pendingAmount = pending.reduce((sum, s) => sum + subtotal(s), 0);
+  const pendingAmount = pending.reduce((sum, s) => sum + saleTotal(s), 0);
   const methods = ["All payments", ...Array.from(new Set(sales.map(s => s.payment)))];
   const matches = sales.filter(s => `${s.id} ${s.customer} ${s.payment}`.toLowerCase().includes(txnQuery.toLowerCase()) && (method === "All payments" || s.payment === method));
 
@@ -790,7 +960,7 @@ function Finance({ sales }: { sales: Sale[] }) {
       <div className="filter"><Search size={15}/><input placeholder="Search invoice, customer, or method" value={txnQuery} onChange={e=>setTxnQuery(e.target.value)}/>{txnQuery&&<button className="filter-clear" aria-label="Clear transaction search" onClick={()=>setTxnQuery("")}><X size={13}/></button>}</div>
       <div className="select-wrap"><button className="select-button" onClick={()=>setMethodOpen(o=>!o)}>{method} <ChevronDown size={14}/></button>{methodOpen && <><button className="menu-backdrop" aria-label="Close payment-method menu" onClick={()=>setMethodOpen(false)}/><div className="select-menu">{methods.map(m=><button key={m} className={method===m?"on":""} onClick={()=>{setMethod(m);setMethodOpen(false);}}>{m}</button>)}</div></>}</div>
     </div>
-    {matches.length===0?<div className="empty">No transactions match your filters.</div>:<DataTable headers={["INVOICE","CUSTOMER","PAYMENT","AMOUNT","STATUS"]} rows={matches.map(s=>[s.id,s.customer,s.payment,money(subtotal(s)),s.status])}/>}
+    {matches.length===0?<div className="empty">No transactions match your filters.</div>:<DataTable headers={["INVOICE","CUSTOMER","PAYMENT","AMOUNT","STATUS"]} rows={matches.map(s=>[s.id,s.customer,s.payment,money(saleTotal(s)),s.status])}/>}
     </div>
   </>;
 }

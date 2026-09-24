@@ -1,7 +1,7 @@
 import { MongoClient } from "mongodb";
 
-export type Product = { name: string; sku: string; category: string; price: number; stock: number; image?: string };
-export type SaleLine = { name: string; sku: string; price: number; qty: number };
+export type Product = { name: string; sku: string; category: string; price: number; cost: number; stock: number; image?: string };
+export type SaleLine = { name: string; sku: string; price: number; cost: number; qty: number };
 export type SaleStatus = "Paid" | "Pending" | "Refunded";
 export type StaffRole = "Administrator" | "Manager" | "Cashier";
 export type StaffMember = { name: string; role: StaffRole; permissions: string; status: "Active" | "Inactive" };
@@ -16,6 +16,8 @@ export type Sale = {
   date: string;
   payment: string;
   status: SaleStatus;
+  /** Manager-approved markdown off the subtotal (0 when none). */
+  discount: number;
   lines: SaleLine[];
   refundReason?: string;
   servedBy?: string;
@@ -24,7 +26,7 @@ export type Sale = {
   changeDue?: number;
 };
 export type StoredProduct = Product & { _id: string };
-export type StoredSale = Sale & { _id: string; createdAt: Date };
+export type StoredSale = Sale & { _id: string; createdAt: Date; /** Subtotal − discount, snapshotted at sale time. */ saleTotal: number };
 export type StoredStaffLegacy = StaffMember & { _id: string };
 /** Single-store settings: identity used by the sidebar, login screen, and printed invoices. */
 export type StoreSettings = { name: string; location: string; receiptFooter: string; currency: string };
@@ -168,6 +170,10 @@ export async function ensureSeeded() {
   const staff = db.collection<StoredStaff>("staff");
   const sessions = db.collection<StoredSession>("sessions");
 
+  // Products created before cost existed read as cost 0 — profit counts them at
+  // zero cost rather than failing.
+  await products.updateMany({ cost: { $exists: false } }, { $set: { cost: 0 } });
+
   // Indexes: products category filter; sales list sort and stats aggregations;
   // sessions TTL cleanup (Mongo deletes expired sessions on its own schedule).
   await products.createIndex({ category: 1 });
@@ -188,40 +194,63 @@ export async function ensureSeeded() {
 
   if ((await products.countDocuments()) === 0) {
     const seedProducts: Product[] = [
-      { name: "Premium Jasmine Rice 5kg", sku: "SKU-09231", category: "Groceries", price: 12.5, stock: 4 },
-      { name: "Coca Cola Original 330ml", sku: "SKU-00842", category: "Beverages", price: 0.75, stock: 48 },
-      { name: "Cambodia Beer Can 330ml", sku: "SKU-00128", category: "Beverages", price: 1.25, stock: 12 },
-      { name: "Angkor Mineral Water 1.5L", sku: "SKU-00419", category: "Beverages", price: 0.5, stock: 96 },
-      { name: "Palm Sugar 500g", sku: "SKU-00555", category: "Groceries", price: 3.2, stock: 25 },
-      { name: "Laundry Detergent 1kg", sku: "SKU-00783", category: "Household", price: 4.75, stock: 18 }
+      { name: "Premium Jasmine Rice 5kg", sku: "SKU-09231", category: "Groceries", price: 12.5, cost: 9.8, stock: 4 },
+      { name: "Coca Cola Original 330ml", sku: "SKU-00842", category: "Beverages", price: 0.75, cost: 0.45, stock: 48 },
+      { name: "Cambodia Beer Can 330ml", sku: "SKU-00128", category: "Beverages", price: 1.25, cost: 0.8, stock: 12 },
+      { name: "Angkor Mineral Water 1.5L", sku: "SKU-00419", category: "Beverages", price: 0.5, cost: 0.28, stock: 96 },
+      { name: "Palm Sugar 500g", sku: "SKU-00555", category: "Groceries", price: 3.2, cost: 2.1, stock: 25 },
+      { name: "Laundry Detergent 1kg", sku: "SKU-00783", category: "Household", price: 4.75, cost: 3.4, stock: 18 }
     ];
     await products.insertMany(seedProducts.map(p => ({ ...p, _id: p.sku })));
   }
 
   if ((await sales.countDocuments()) === 0) {
-    const rice = { name: "Premium Jasmine Rice 5kg", sku: "SKU-09231", price: 12.5 };
-    const water = { name: "Angkor Mineral Water 1.5L", sku: "SKU-00419", price: 0.5 };
-    const sugar = { name: "Palm Sugar 500g", sku: "SKU-00555", price: 3.2 };
-    const beer = { name: "Cambodia Beer Can 330ml", sku: "SKU-00128", price: 1.25 };
+    // Each line snapshots the product's unit cost at sale time so historical profit
+    // stays stable even after the catalog's cost is edited.
+    const mk = (name: string, sku: string, price: number, cost: number, qty: number) => ({ name, sku, price, cost, qty });
+    const rice = (qty: number) => mk("Premium Jasmine Rice 5kg", "SKU-09231", 12.5, 9.8, qty);
+    const water = (qty: number) => mk("Angkor Mineral Water 1.5L", "SKU-00419", 0.5, 0.28, qty);
+    const sugar = (qty: number) => mk("Palm Sugar 500g", "SKU-00555", 3.2, 2.1, qty);
+    const beer = (qty: number) => mk("Cambodia Beer Can 330ml", "SKU-00128", 1.25, 0.8, qty);
+    const seed = (id: string, customer: string, date: string, payment: string, status: SaleStatus, servedBy: string, discount: number, lines: ReturnType<typeof mk>[], createdAt: Date) =>
+      ({ id, customer, date, payment, status, servedBy, discount, lines, createdAt, saleTotal: Math.round((lines.reduce((sum, l) => sum + l.price * l.qty, 0) - discount) * 100) / 100 });
     const now = Date.now();
     const hoursAgo = (h: number) => new Date(now - h * 3600_000);
     const daysAgo = (d: number, h = 0) => hoursAgo(d * 24 + h);
-    const seedSales: (Sale & { createdAt: Date })[] = [
-      { id: "#INV-1048", customer: "Sokha Trading", date: "Today, 10:42 AM", payment: "Cash", status: "Paid", lines: [{ ...rice, qty: 16 }, { ...water, qty: 96 }], createdAt: hoursAgo(2) },
-      { id: "#INV-1047", customer: "Dara Market", date: "Today, 10:15 AM", payment: "ABA Pay", status: "Paid", lines: [{ ...sugar, qty: 25 }, { ...water, qty: 13 }], createdAt: hoursAgo(5) },
-      { id: "#INV-1046", customer: "Walk-in customer", date: "Today, 09:58 AM", payment: "Cash", status: "Paid", lines: [{ ...beer, qty: 12 }, { ...rice, qty: 2 }, { ...water, qty: 4 }], createdAt: hoursAgo(8) },
-      { id: "#INV-1045", customer: "Srey Mom", date: "Yesterday, 04:28 PM", payment: "Credit", status: "Pending", lines: [{ ...rice, qty: 10 }], createdAt: daysAgo(1, 3) },
-      { id: "#INV-1044", customer: "Vichea Mart", date: "Yesterday, 02:10 PM", payment: "Cash", status: "Refunded", refundReason: "Changed their mind", lines: [{ ...rice, qty: 1 }], createdAt: daysAgo(1, 6) },
-      { id: "#INV-1043", customer: "Rotha Shop", date: "2 days ago", payment: "Cash", status: "Paid", lines: [{ ...sugar, qty: 8 }, { ...beer, qty: 6 }], createdAt: daysAgo(2, 2) },
-      { id: "#INV-1042", customer: "Walk-in customer", date: "3 days ago", payment: "ABA Pay", status: "Paid", lines: [{ ...water, qty: 40 }], createdAt: daysAgo(3, 4) },
-      { id: "#INV-1041", customer: "Chan Mart", date: "4 days ago", payment: "Cash", status: "Paid", lines: [{ ...rice, qty: 3 }, { ...sugar, qty: 12 }], createdAt: daysAgo(4, 5) },
-      { id: "#INV-1040", customer: "Sokha Trading", date: "5 days ago", payment: "Credit", status: "Paid", lines: [{ ...beer, qty: 24 }], createdAt: daysAgo(5, 6) },
+    const seedSales: (Sale & { createdAt: Date; saleTotal: number })[] = [
+      seed("#INV-1048", "Sokha Trading", "Today, 10:42 AM", "Cash", "Paid", "Sokha P.", 0, [rice(16), water(96)], hoursAgo(2)),
+      seed("#INV-1047", "Dara Market", "Today, 10:15 AM", "ABA Pay", "Paid", "Dara K.", 2, [sugar(25), water(13)], hoursAgo(5)),
+      seed("#INV-1046", "Walk-in customer", "Today, 09:58 AM", "Cash", "Paid", "Mony S.", 0, [beer(12), rice(2), water(4)], hoursAgo(8)),
+      seed("#INV-1045", "Srey Mom", "Yesterday, 04:28 PM", "Credit", "Pending", "Mony S.", 0, [rice(10)], daysAgo(1, 3)),
+      seed("#INV-1044", "Vichea Mart", "Yesterday, 02:10 PM", "Cash", "Refunded", "Dara K.", 0, [rice(1)], daysAgo(1, 6)),
+      seed("#INV-1043", "Rotha Shop", "2 days ago", "Cash", "Paid", "Dara K.", 1.5, [sugar(8), beer(6)], daysAgo(2, 2)),
+      seed("#INV-1042", "Walk-in customer", "3 days ago", "ABA Pay", "Paid", "Mony S.", 0, [water(40)], daysAgo(3, 4)),
+      seed("#INV-1041", "Chan Mart", "4 days ago", "Cash", "Paid", "Dara K.", 0, [rice(3), sugar(12)], daysAgo(4, 5)),
+      seed("#INV-1040", "Sokha Trading", "5 days ago", "Credit", "Paid", "Sokha P.", 0, [beer(24)], daysAgo(5, 6)),
       // Prior-week sales (same weekdays, seven days earlier) to feed the vs-last-week KPIs.
-      { id: "#INV-1039", customer: "Dara Market", date: "Last week", payment: "Cash", status: "Paid", lines: [{ ...rice, qty: 12 }, { ...water, qty: 60 }], createdAt: daysAgo(9, 3) },
-      { id: "#INV-1038", customer: "Vichea Mart", date: "Last week", payment: "ABA Pay", status: "Paid", lines: [{ ...sugar, qty: 18 }, { ...beer, qty: 10 }], createdAt: daysAgo(10, 5) },
-      { id: "#INV-1037", customer: "Rotha Shop", date: "Last week", payment: "Cash", status: "Paid", lines: [{ ...water, qty: 80 }], createdAt: daysAgo(11, 2) }
+      seed("#INV-1039", "Dara Market", "Last week", "Cash", "Paid", "Mony S.", 0, [rice(12), water(60)], daysAgo(9, 3)),
+      seed("#INV-1038", "Vichea Mart", "Last week", "ABA Pay", "Paid", "Dara K.", 0, [sugar(18), beer(10)], daysAgo(10, 5)),
+      seed("#INV-1037", "Rotha Shop", "Last week", "Cash", "Paid", "Mony S.", 0, [water(80)], daysAgo(11, 2))
     ];
     await sales.insertMany(seedSales.map(s => ({ ...s, _id: s.id })));
+  }
+}
+
+/**
+ * Backfill for sales written before the analytics fields existed: legacy docs get
+ * discount 0, saleTotal derived from their lines, and cost 0 per line (unknown →
+ * profit counts 0, never negative). Idempotent; runs on sales reads.
+ */
+export async function normalizeLegacySales() {
+  const sales = await getSalesCollection();
+  const legacy = await sales.find({ $or: [{ discount: { $exists: false } }, { saleTotal: { $exists: false } }, { "lines.cost": { $exists: false } }] }).limit(500).toArray();
+  for (const s of legacy) {
+    const subtotal = Math.round(s.lines.reduce((sum, l) => sum + l.price * l.qty, 0) * 100) / 100;
+    const patch: Record<string, unknown> = {};
+    if (s.discount === undefined) patch.discount = 0;
+    if (s.saleTotal === undefined) patch.saleTotal = subtotal;
+    if (s.lines.some(l => l.cost === undefined)) patch.lines = s.lines.map(l => ({ ...l, cost: 0 }));
+    if (Object.keys(patch).length > 0) await sales.updateOne({ _id: s._id }, { $set: patch });
   }
 }
 
