@@ -1670,7 +1670,7 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && query.trim()) { e.preventDefault(); const t = query.trim(); if (/^#?inv/i.test(t)) { setOrderSearch(t.replace(/^#/, "")); navigate("Transactions"); } else { navigate("Products"); setQuery(t); } } }} placeholder="Search products, orders..."/><kbd className="search-kbd">Ctrl K</kbd></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} methods={(settings.paymentMethods ?? []).filter(m => m.enabled).map(m => m.name)}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role, roles)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role, roles)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role, roles)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role, roles)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Payments" ? <PaymentsHub sales={sales} role={session.role}/> : active === "Expenses" ? <ExpensesHub role={session.role}/> : active === "Cash Register" ? <RegisterHub sales={sales} role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsHub key={active} settings={settings} sales={sales} role={session.role} roles={roles} canManage={can("settings.manage", session.role, roles)} onSave={updateSettings} onChanged={() => { void refreshAll(); }} navigate={navigate}/> : active === "Staff" || active === "Roles & Permissions" || active === "Departments" ? <StaffHub key={active} staff={staff} sales={sales} role={session.role} currentUser={session.name} query={query} onQuery={setQuery} roles={roles} reloadRoles={reloadRoles} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} initialTab={active === "Roles & Permissions" ? "Roles & Permissions" : active === "Departments" ? "Departments" : undefined}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} methods={(settings.paymentMethods ?? []).filter(m => m.enabled).map(m => m.name)} settings={settings}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role, roles)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role, roles)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role, roles)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role, roles)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Payments" ? <PaymentsHub sales={sales} role={session.role}/> : active === "Expenses" ? <ExpensesHub role={session.role}/> : active === "Cash Register" ? <RegisterHub sales={sales} role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsHub key={active} settings={settings} sales={sales} role={session.role} roles={roles} canManage={can("settings.manage", session.role, roles)} onSave={updateSettings} onChanged={() => { void refreshAll(); }} navigate={navigate}/> : active === "Staff" || active === "Roles & Permissions" || active === "Departments" ? <StaffHub key={active} staff={staff} sales={sales} role={session.role} currentUser={session.name} query={query} onQuery={setQuery} roles={roles} reloadRoles={reloadRoles} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} initialTab={active === "Roles & Permissions" ? "Roles & Permissions" : active === "Departments" ? "Departments" : undefined}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }
@@ -2127,9 +2127,11 @@ function StockPage({ catalog, canManage, onAdjust, embed }: { catalog: Product[]
   </>;
 }
 
-type SalesTab = "pos" | "history" | "returns";
+type SalesTab = "pos" | "history" | "returns" | "held" | "today" | "possettings";
+/** A suspended checkout as returned by /api/held-sales. */
+type HeldSaleLite = { id: string; lines: SaleLine[]; itemCount: number; heldBy: string; heldAt: string; note?: string };
 
-function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, receiptFooter, currency, role, initialTab, initialHistoryQuery, embed, methods }: { catalog: Product[]; sales: Sale[]; onRecord: (lines: SaleLine[], payment: SalePayment, done?: (ok: boolean, sale?: Sale) => void) => void; onRefund: (id: string, reason: string, done?: (ok: boolean) => void) => void; storeName: string; storeLocation: string; receiptFooter: string; currency: string; role: StaffRole; initialTab: SalesTab; initialHistoryQuery?: string; embed?: boolean; methods?: string[] }) {
+function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, receiptFooter, currency, role, initialTab, initialHistoryQuery, embed, methods, settings }: { catalog: Product[]; sales: Sale[]; onRecord: (lines: SaleLine[], payment: SalePayment, done?: (ok: boolean, sale?: Sale) => void) => void; onRefund: (id: string, reason: string, done?: (ok: boolean) => void) => void; storeName: string; storeLocation: string; receiptFooter: string; currency: string; role: StaffRole; initialTab: SalesTab; initialHistoryQuery?: string; embed?: boolean; methods?: string[]; settings?: StoreSettings }) {
   const [tab, setTab] = useState<SalesTab>(initialTab);
   const [cardsView, setCardsView] = useState(false);
   const [historyQuery, setHistoryQuery] = useState(initialHistoryQuery ?? "");
@@ -2194,10 +2196,101 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
     });
   };
 
-  return <>{!embed && <PageHeading title={pageInfo[tab === "pos" ? "POS" : tab === "history" ? "Transactions" : "Returns & Refunds"].title} sub={pageInfo[tab === "pos" ? "POS" : tab === "history" ? "Transactions" : "Returns & Refunds"].subtitle}/>}
+  // ── Held / suspended sales: park a cart mid-checkout and resume it later.
+  // Stock was never deducted on hold, so resuming needs no inventory recheck —
+  // the sale endpoint still enforces stock policy at final checkout.
+  const [heldList, setHeldList] = useState<HeldSaleLite[]>([]);
+  const [heldFlash, setHeldFlash] = useState<string | null>(null);
+  const loadHeld = useCallback(() => {
+    fetch("/api/held-sales", { credentials: "same-origin" }).then(r => r.ok ? r.json() : Promise.reject()).then(d => setHeldList(d as HeldSaleLite[])).catch(() => {});
+  }, []);
+  useEffect(loadHeld, [loadHeld]);
+  const holdCurrent = () => {
+    if (busyRef.current || cart.length === 0) return;
+    busyRef.current = true; setBusy(true);
+    fetch("/api/held-sales", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lines: cart.map(l => ({ sku: l.sku, name: l.name, price: l.price, qty: l.qty })) }) })
+      .then(r => r.json().then(d => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (ok) { setCart([]); setHeldFlash(`Cart held as ${(d as HeldSaleLite).id} — resume it from Held / Suspended Sales.`); loadHeld(); }
+        else setHeldFlash((d as { error?: string }).error ?? "Could not hold the cart.");
+      })
+      .catch(() => setHeldFlash("Could not reach the server."))
+      .finally(() => { busyRef.current = false; setBusy(false); });
+  };
+  const resumeHeld = (h: HeldSaleLite) => {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true);
+    fetch("/api/held-sales", { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: h.id }) })
+      .then(r => r.json().then(d => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (ok) { setCart((d as HeldSaleLite).lines); setHeldFlash(`${h.id} resumed into the current sale.`); switchTab("pos"); loadHeld(); }
+        else setHeldFlash((d as { error?: string }).error ?? "Could not resume the held sale.");
+      })
+      .catch(() => setHeldFlash("Could not reach the server."))
+      .finally(() => { busyRef.current = false; setBusy(false); });
+  };
+  const discardHeld = (h: HeldSaleLite) => {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true);
+    fetch(`/api/held-sales?id=${encodeURIComponent(h.id)}`, { method: "DELETE", credentials: "same-origin" })
+      .then(r => { if (r.ok) { setHeldFlash(`${h.id} discarded.`); loadHeld(); } else setHeldFlash("Could not discard the held sale."); })
+      .catch(() => setHeldFlash("Could not reach the server."))
+      .finally(() => { busyRef.current = false; setBusy(false); });
+  };
+
+  // Today's sales: paid + pending sales recorded today (refunds excluded — they
+  // are shown, and processed, in Returns).
+  const todaysSales = sales.filter(s => {
+    if (s.status === "Refunded") return false;
+    if (s.createdAt) return new Date(s.createdAt).toDateString() === new Date().toDateString();
+    return (s.date || "").startsWith("Today");
+  });
+
+  // Cashier keyboard shortcuts (POS tab only, never while typing): F2 product
+  // search, F4 charge, F8 hold, F3 held list.
+  const posSearchRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (embed) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = document.activeElement;
+      const typing = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
+      if (e.key === "F2") { e.preventDefault(); posSearchRef.current?.focus(); }
+      else if (typing) return;
+      else if (e.key === "F4" && tab === "pos") { e.preventDefault(); openPayment(); }
+      else if (e.key === "F8" && tab === "pos") { e.preventDefault(); holdCurrent(); }
+      else if (e.key === "F3" && !embed) { e.preventDefault(); switchTab("held"); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const posTabs: { key: SalesTab; label: string }[] = [
+    { key: "pos", label: "New Sale" },
+    { key: "held", label: "Held / Suspended" },
+    { key: "today", label: "Today's Sales" },
+    { key: "returns", label: "Returns" },
+    { key: "possettings", label: "POS Settings" },
+  ];
+  return <>{!embed && <PageHeading title={pageInfo[tab === "history" ? "Transactions" : "POS"].title} sub={pageInfo[tab === "history" ? "Transactions" : "POS"].subtitle}/>}
+  {!embed && <div className="subnav subnav-wrap">
+    {posTabs.map(t => <button key={t.key} className={`tab ${tab === t.key ? "active" : ""}`} onClick={() => switchTab(t.key)}>{t.label}{t.key === "held" && heldList.length > 0 ? ` (${heldList.length})` : ""}</button>)}
+    {heldList.length > 0 && !embed && <span className="you-chip">F3 to open held sales</span>}   
+  </div>}
+  {heldFlash && <p className="checkout-success" role="status">{heldFlash}<button className="banner-close" aria-label="Dismiss" onClick={() => setHeldFlash(null)}><X size={14}/></button></p>}
   {refundDone && <p className="checkout-success success-banner" role="status">Refund for {refundDone} recorded successfully.</p>}
-  {tab==="pos" && <div className="pos-layout"><div className="panel product-picker"><div className="toolbar"><h2>Choose products</h2><div className="filter"><Search size={15}/><input value={productQuery} onChange={e=>setProductQuery(e.target.value)} placeholder="Search products"/></div></div><div className="picker-grid">{visibleProducts.map(p=>{const inCart=cart.find(l=>l.sku===p.sku)?.qty??0;const left=p.stock-inCart;return <button key={p.sku} className="picker-card" disabled={left<=0} onClick={()=>{setJustCheckedOut(null);setCart(c=>c.some(l=>l.sku===p.sku)?c.map(l=>l.sku===p.sku?{...l,qty:l.qty+1}:l):[...c,toLine(p)]);}}><div className="picker-thumb">{p.image?<img src={p.image} alt=""/>:<div className="product-placeholder"><Package size={20}/></div>}</div><strong>{p.name}</strong><span>{money(p.price)} · {left<=0?"none left":"in stock: "+left}</span></button>;})}{visibleProducts.length===0&&<div className="empty">No products match your search.</div>}</div></div><div className="panel cart-panel"><div className="panel-header"><h2>Current sale</h2><span className="status paid">{cart.reduce((n,l)=>n+l.qty,0)} items</span></div>{cart.length===0?<div className="empty">Your cart is empty</div>:<div className="cart-lines">{cart.map((l,i)=><div className="cart-line" key={l.sku}><div><strong>{l.name}</strong><span>{money(l.price)} × {l.qty}</span></div><button aria-label={`Remove ${l.name}`} onClick={()=>setCart(c=>c.filter((_,idx)=>idx!==i))}><X size={14}/></button></div>)}</div>}<div className="cart-total"><span>Subtotal</span><strong>{money(total)}</strong></div>{justCheckedOut&&<p className="checkout-success" role="status">Sale {justCheckedOut.id} recorded.{justCheckedOut.changeDue ? ` Change due ${money(justCheckedOut.changeDue)}.` : ""}</p>}<button className="primary-button checkout" disabled={cart.length===0||busy} onClick={openPayment}>{busy ? "Charging…" : `Charge ${money(total)}`}</button></div></div>}
   {tab==="history" && <div className="panel table-panel"><div className={`toolbar ${loadingPage?"row-loading":""}`}><strong>{serverSales ? (historyQuery ? `${serverMeta.total} matching sales` : `${serverMeta.total} sales`) : (historyQuery ? `${historyMatches.length} of ${sales.length} sales` : `${sales.length} sales`)}</strong><div className="filter"><Search size={15}/><input placeholder="Search invoice or customer" value={historyQuery} onChange={e=>{setHistoryQuery(e.target.value);setPage(1);}}/>{historyQuery&&<button className="filter-clear" aria-label="Clear sales search" onClick={()=>{setHistoryQuery("");setPage(1);}}><X size={13}/></button>}</div><button className="outline-button" onClick={()=>setCardsView(v=>!v)}>{cardsView?"Table view":"Card view"}</button></div>{serverError&&<p className="offline-banner" role="alert">{serverError}</p>}{historyMatches.length===0?<div className="empty">{loadingPage?"Loading…":"No sales match your search."}</div>:cardsView?<div className={`receipts-grid ${loadingPage?"row-loading":""}`}>{historyMatches.map(s=><div className="panel receipt-card" key={s.id}><div className="receipt-card-head"><strong>{s.id}</strong><span className={`status ${statusClass(s.status)}`}>{s.status}</span></div><p>{s.customer} · {s.date}</p><div className="receipt-card-total"><span>{itemCount(s)} items</span><strong>{money(saleTotal(s))}</strong></div><button className="outline-button" onClick={()=>setViewing(s)}>View receipt</button></div>)}</div>:<SalesTable sales={historyMatches} onView={setViewing} onRefund={startRefund}/>}{serverSales && serverMeta.pages > 1 && (<div className="pager"><button className="outline-button" disabled={page<=1} onClick={()=>setPage(page-1)}>‹ Prev</button><span>Page {page} of {serverMeta.pages} · {serverMeta.total} sales</span><button className="outline-button" disabled={page>=serverMeta.pages} onClick={()=>setPage(page+1)}>Next ›</button></div>)}</div>}
+  {tab==="pos" && <div className="pos-layout"><div className="panel product-picker"><div className="toolbar"><h2>Choose products</h2><div className="filter"><Search size={15}/><input ref={posSearchRef} value={productQuery} onChange={e=>setProductQuery(e.target.value)} placeholder="Search products (F2)"/></div></div><div className="picker-grid">{visibleProducts.map(p=>{const inCart=cart.find(l=>l.sku===p.sku)?.qty??0;const left=p.stock-inCart;return <button key={p.sku} className="picker-card" disabled={left<=0} onClick={()=>{setJustCheckedOut(null);setCart(c=>c.some(l=>l.sku===p.sku)?c.map(l=>l.sku===p.sku?{...l,qty:l.qty+1}:l):[...c,toLine(p)]);}}><div className="picker-thumb">{p.image?<img src={p.image} alt=""/>:<div className="product-placeholder"><Package size={20}/></div>}</div><strong>{p.name}</strong><span>{money(p.price)} · {left<=0?"none left":"in stock: "+left}</span></button>;})}{visibleProducts.length===0&&<div className="empty">No products match your search.</div>}</div></div><div className="panel cart-panel"><div className="panel-header"><h2>Current sale</h2><span className="status paid">{cart.reduce((n,l)=>n+l.qty,0)} items</span></div>{cart.length===0?<div className="empty">Your cart is empty</div>:<div className="cart-lines">{cart.map((l,i)=><div className="cart-line" key={l.sku}><div><strong>{l.name}</strong><span>{money(l.price)} × {l.qty}</span></div><button aria-label={`Remove ${l.name}`} onClick={()=>setCart(c=>c.filter((_,idx)=>idx!==i))}><X size={14}/></button></div>)}</div>}<div className="cart-total"><span>Subtotal</span><strong>{money(total)}</strong></div>{justCheckedOut&&<p className="checkout-success" role="status">Sale {justCheckedOut.id} recorded.{justCheckedOut.changeDue ? ` Change due ${money(justCheckedOut.changeDue)}.` : ""}</p>}<div className="modal-actions"><button className="outline-button" disabled={cart.length===0||busy} onClick={holdCurrent} title="Hold sale (F8)">Hold sale</button><button className="primary-button checkout" disabled={cart.length===0||busy} onClick={openPayment} title="Charge (F4)">{busy ? "Charging…" : `Charge ${money(total)}`}</button></div></div></div>}
+  {tab==="held" && <div className="panel table-panel"><div className="toolbar"><strong>Held / suspended sales</strong><span className="you-chip">holding never reserves stock — stock policy applies when the sale is resumed and charged</span></div></div>}
+  {tab==="held" && (heldList.length===0 ? <div className="empty">No held sales. Use “Hold sale” on New Sale to park a cart mid-checkout.</div> : <div className="pos-layout">{heldList.map(h=><div className="panel cart-panel" key={h.id}><div className="panel-header"><h2>{h.id}</h2><span className="status paid">{h.itemCount} items</span></div><div className="cart-lines">{h.lines.map(l=><div className="cart-line" key={l.sku}><div><strong>{l.name}</strong><span>{money(l.price)} × {l.qty}</span></div></div>)}</div><p className="form-intro">Held by {h.heldBy} · {new Date(h.heldAt).toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"})}{h.note?` · ${h.note}`:""}</p><div className="modal-actions"><button className="primary-button" disabled={busy} onClick={()=>resumeHeld(h)}>Resume into current sale</button><button className="outline-button" disabled={busy} onClick={()=>discardHeld(h)}>Discard</button></div></div>)}</div>)}
+  {tab==="today" && <div className="panel table-panel"><div className="toolbar"><strong>Sales recorded today</strong><span className="you-chip">{todaysSales.length} sale{todaysSales.length===1?"":"s"} · {money(todaysSales.reduce((t,s)=>t+saleTotal(s),0))} in sales today</span></div>{todaysSales.length===0?<div className="empty">No sales recorded today yet.</div>:<DataTable headers={["INVOICE","CUSTOMER","PAYMENT","AMOUNT","STATUS"]} rows={todaysSales.map(s=>[s.id,s.customer,s.payment,money(saleTotal(s)),s.status])}/>}</div>}
+  {tab==="possettings" && <div className="panel table-panel"><div className="toolbar"><strong>POS posture — live from Settings</strong><span className="you-chip">change them in Settings; they apply at checkout instantly</span></div>{!settings?<div className="empty">Loading…</div>:<DataTable headers={["SETTING","VALUE"]} rows={[
+    ["Accepted payment methods", ((settings.paymentMethods ?? []).filter(m=>m.enabled).map(m=>m.name).join(", ")) || "Cash"],
+    ["Discount cap", `${settings.maxDiscountPercent ?? 50}% of subtotal (server-enforced)`],
+    ["Tax", settings.taxEnabled ? `${settings.taxLabel || "Tax"} ${settings.taxRatePercent}% (${settings.taxInclusive ? "inclusive" : "exclusive"})` : "Off"],
+    ["Stock policy", settings.allowNegativeStock ? "Allow selling below zero" : "Block sale when stock is insufficient"],
+    ["Low-stock threshold", `${settings.lowStockThreshold ?? 10} units`],
+    ["Loyalty", settings.loyaltyEnabled !== false ? `${settings.loyaltyEarnRate ?? 1} point(s) per ${settings.currency || "$"}1 on Paid sales` : "Off"],
+  ]}/>}</div>}
   {tab==="returns" && <><div className="panel table-panel"><div className="toolbar"><strong>Refundable sales</strong><div className="filter"><Search size={15}/><input placeholder="Search sales" readOnly/></div><button className="select-button">All payments <ChevronDown size={14}/></button></div>{refundable.length===0?<div className="empty">Nothing left to refund.</div>:<SalesTable sales={refundable} onView={setViewing} onRefund={startRefund}/>}</div><div className="panel table-panel"><div className="toolbar"><strong>{refunds.length} refunds</strong></div>{refunds.length===0?<div className="empty">No refunds yet.</div>:<DataTable headers={["INVOICE","CUSTOMER","DATE","REFUNDED","REASON","STATUS"]} rows={refunds.map(s=>[s.id,s.customer,s.date,money(saleTotal(s)),s.refundReason||"—","Refunded"])}/>}</div></>}
   {viewing && <ReceiptModal sale={viewing} onClose={()=>setViewing(null)} onRefund={startRefund} storeName={storeName} storeLocation={storeLocation} receiptFooter={receiptFooter} currency={currency}/>}
   {paying && <PaymentModal total={total} itemCount={cart.reduce((n,l)=>n+l.qty,0)} currency={currency} role={role} busy={busy} onClose={()=>setPaying(false)} onConfirm={doCheckout} methods={methods}/>}

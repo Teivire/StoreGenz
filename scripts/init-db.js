@@ -393,6 +393,33 @@ const validators = {
       }
     }
   },
+  held_sales: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "id", "lines", "itemCount", "heldBy", "heldAt"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        id: { bsonType: "string", minLength: 1, maxLength: 12 },
+        lines: {
+          bsonType: "array",
+          items: {
+            bsonType: "object",
+            required: ["name", "sku", "price", "qty"],
+            properties: {
+              name: { bsonType: "string", minLength: 1 },
+              sku: { bsonType: "string", minLength: 1 },
+              price: { bsonType: "number", minimum: 0 },
+              qty: { bsonType: "int", minimum: 1 }
+            }
+          }
+        },
+        itemCount: { bsonType: "int", minimum: 1 },
+        heldBy: { bsonType: "string", minLength: 1 },
+        heldAt: { bsonType: "string" },
+        note: { bsonType: "string", maxLength: 140 }
+      }
+    }
+  },
   activity_log: {
     $jsonSchema: {
       bsonType: "object",
@@ -469,6 +496,9 @@ const validators = {
 };
 
 const indexes = {
+  held_sales: [
+    { key: { heldAt: -1 }, name: "heldAt_-1" }
+  ],
   products: [
     { key: { category: 1 }, name: "category_1" }
   ],

@@ -78,6 +78,17 @@ export type StoreRecord = {
 };
 export type StoredStore = StoreRecord & { _id: string };
 
+/** A suspended checkout (POS → Held / Suspended Sales). Resuming moves the lines back to the active cart without rechecking stock. */
+export type HeldSale = {
+  id: string;          // H-001, H-002 …
+  lines: SaleLine[];
+  itemCount: number;
+  heldBy: string;
+  heldAt: string;      // ISO
+  note?: string;
+};
+export type StoredHeldSale = HeldSale & { _id: string };
+
 /** Attendance: one document per clock-in; clockOut set when the shift ends. */
 export type AttendanceEntry = {
   id: string;
@@ -419,6 +430,10 @@ export async function getStoresCollection() {
   return (await getDb()).collection<StoredStore>("stores");
 }
 
+export async function getHeldSalesCollection() {
+  return (await getDb()).collection<StoredHeldSale>("held_sales");
+}
+
 export async function getRolesCollection() {
   return (await getDb()).collection<StoredRole>("roles");
 }
@@ -737,6 +752,11 @@ export function ensureSeeded(): Promise<void> {
       const now = new Date().toISOString();
       await roles.insertMany(ROLE_SEEDS.map(({ rank: _rank, ...r }) => ({ ...r, _id: r.id, createdAt: now, updatedAt: now })));
     }
+
+    // Held sales: H-numbering is derived from the highest existing id, so only
+    // newest-first lookup needs an index.
+    const held = db.collection<StoredHeldSale>("held_sales");
+    await held.createIndex({ heldAt: -1 }, { name: "heldAt_-1" });
 
     // Store registry: the configured single store becomes ST-001 so the list is
     // never empty and the first added location starts at ST-002.
