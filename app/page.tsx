@@ -385,6 +385,9 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [payment, setPayment] = useState("All payments");
   const [paymentOpen, setPaymentOpen] = useState(false);
+  // Custom date range (inclusive on both ends). `customTo` defaults to today.
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   // Trend-chart metric: revenue always, orders, and gross profit (managers+ only).
   const [metric, setMetric] = useState<"revenue" | "orders" | "profit">("revenue");
   const trendValue = (d: { revenue: number; orders: number; profit: number }) => metric === "revenue" ? d.revenue : metric === "orders" ? d.orders : d.profit;
@@ -392,15 +395,23 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
 
   const DAY = 86_400_000;
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-  const rangeStart = range === "all" ? 0 : todayStart.getTime() - (range === "today" ? 0 : (range as 7 | 30) - 1) * DAY;
-  const rangeLabel = range === "today" ? "Today" : range === "all" ? "All time" : `Last ${range} days`;
+  // Inclusive [start, end) window. "month" = the current calendar month.
+  const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1).getTime();
+  const customFromTs = customFrom ? new Date(customFrom + "T00:00:00").getTime() : NaN;
+  const customToTs = customTo ? new Date(customTo + "T00:00:00").getTime() : todayStart.getTime();
+  const customValid = Number.isFinite(customFromTs) && Number.isFinite(customToTs) && customFromTs <= customToTs;
+  const dayCount = range === "today" ? 1 : range === "month" ? Math.max(1, Math.round((todayStart.getTime() - monthStart) / DAY) + 1) : range === "custom" ? (customValid ? Math.round((customToTs - customFromTs) / DAY) + 1 : 1) : range === "all" ? Infinity : range as number;
+  const monthly = range === "all" || (range === "custom" && customValid && dayCount > 45);
+  const rangeStart = range === "all" ? 0 : range === "month" ? monthStart : range === "custom" ? (customValid ? customFromTs : 0) : todayStart.getTime() - (range === "today" ? 0 : (range as 7 | 30) - 1) * DAY;
+  const rangeEnd = range === "custom" && customValid ? customToTs + DAY : Infinity;
+  const rangeLabel = range === "today" ? "Today" : range === "all" ? "All time" : range === "month" ? "This month" : range === "custom" ? (customValid ? `${customFrom} → ${customTo || "today"}` : "Custom range") : `Last ${range} days`;
   const categories = Array.from(new Set(catalog.map(p => p.category))).sort();
   const payments = Array.from(new Set(sales.map(s => s.payment))).sort();
   const cashiers = Array.from(new Set(sales.map(s => s.servedBy).filter((x): x is string => !!x))).sort();
 
   // Category filtering is applied per line — a mixed-category sale contributes its
   // matching lines to KPIs, charts, and tables alike.
-  const inRange = (s: Sale) => range === "all" || (s.createdAt ? new Date(s.createdAt).getTime() >= rangeStart : false);
+  const inRange = (s: Sale) => range === "all" || (s.createdAt ? new Date(s.createdAt).getTime() >= rangeStart && new Date(s.createdAt).getTime() < rangeEnd : false);
   const passes = (s: Sale) => {
     if (!inRange(s)) return false;
     if (cashier !== "All cashiers" && s.servedBy !== cashier) return false;
@@ -431,19 +442,37 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
     .map(([m, v]) => ({ method: m, value: v, pct: methodTotal > 0 ? Math.round((v / methodTotal) * 1000) / 10 : 0 }))
     .sort((a, b) => b.value - a.value);
 
-  // ---- Sales trend: daily buckets for day ranges, monthly for all time ----
+  // ---- Sales trend: daily buckets, monthly for all time / long custom spans ----
   const dated = counted.filter(s => s.createdAt);
   const undated = counted.length - dated.length;
+  const bucketKey = (t: number) => { const d = new Date(t); return monthly ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` : d.toDateString(); };
   const buckets = new Map<string, { label: string; revenue: number; orders: number; profit: number; sort: number }>();
   for (const s of dated) {
     const t = new Date(s.createdAt as string).getTime();
-    const d = new Date(t);
-    const key = range === "all" ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` : d.toDateString();
+    const key = bucketKey(t);
     const row = buckets.get(key) ?? { label: "", revenue: 0, orders: 0, profit: 0, sort: t };
     row.revenue += saleTotal(s); row.orders += 1;
     buckets.set(key, row);
   }
-  // Honest zero bars for day ranges (only "today" has a single bucket).
+  // Honest zero bars: fill every day of day-based ranges, every month of monthly views.
+  if (range === 7 || range === 30) {
+    for (let i = 0; i < range; i++) {
+      const d = new Date(todayStart.getTime() - ((range as 7 | 30) - 1 - i) * DAY);
+      const key = d.toDateString();
+      if (!buckets.has(key)) buckets.set(key, { label: "", revenue: 0, orders: 0, profit: 0, sort: d.getTime() });
+    }
+  } else if (range === "month") {
+    const dim = new Date(todayStart.getFullYear(), todayStart.getMonth() + 1, 0).getDate();
+    for (let i = 1; i <= dim; i++) {
+      const d = new Date(todayStart.getFullYear(), todayStart.getMonth(), i);
+      if (!buckets.has(d.toDateString())) buckets.set(d.toDateString(), { label: "", revenue: 0, orders: 0, profit: 0, sort: d.getTime() });
+    }
+  } else if (range === "custom" && customValid && !monthly && dayCount <= 62) {
+    for (let i = 0; i < dayCount; i++) {
+      const d = new Date(customFromTs + i * DAY);
+      if (!buckets.has(d.toDateString())) buckets.set(d.toDateString(), { label: "", revenue: 0, orders:0, profit: 0, sort: d.getTime() });
+    }
+  }
   if (range === 7 || range === 30) {
     for (let i = 0; i < range; i++) {
       const d = new Date(todayStart.getTime() - ((range as 7 | 30) - 1 - i) * DAY);
@@ -455,22 +484,18 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
   // Per-bucket gross profit: each sale's profit lands in its timestamp's bucket.
   const profitByBucket = new Map<string, number>();
   for (const s of dated) {
-    const d = new Date(s.createdAt as string).getTime();
-    const dd = new Date(d);
-    const key = range === "all" ? `${dd.getFullYear()}-${String(dd.getMonth() + 1).padStart(2, "0")}` : dd.toDateString();
+    const key = bucketKey(new Date(s.createdAt as string).getTime());
     const saleCost = lineCost(s) * (category === "All categories" ? 1 : keptLines(s).length / Math.max(s.lines.length, 1));
     profitByBucket.set(key, (profitByBucket.get(key) ?? 0) + (saleTotal(s) - saleCost));
   }
   for (const b of trend) {
-    const dd = new Date(b.sort);
-    const key = range === "all" ? `${dd.getFullYear()}-${String(dd.getMonth() + 1).padStart(2, "0")}` : dd.toDateString();
-    b.profit = Math.round((profitByBucket.get(key) ?? 0) * 100) / 100;
+    b.profit = Math.round((profitByBucket.get(bucketKey(b.sort)) ?? 0) * 100) / 100;
   }
   for (const b of trend) {
     const d = new Date(b.sort);
-    b.label = range === "all"
+    b.label = monthly
       ? d.toLocaleDateString("en-US", { month: "short", year: "2-digit" })
-      : range === 30 ? String(d.getDate()) : range === 7 ? d.toLocaleDateString("en-US", { weekday: "short" }) : d.toLocaleTimeString("en-US", { hour: "numeric" });
+      : range === 30 || range === "month" || (range === "custom" && !monthly) ? String(d.getDate()) : range === 7 ? d.toLocaleDateString("en-US", { weekday: "short" }) : d.toLocaleTimeString("en-US", { hour: "numeric" });
   }
   const labelEvery = trend.length > 16 ? 5 : 1;
   // Chart scale follows the selected metric (revenue/orders/profit).
@@ -483,7 +508,7 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
     row.qty += l.qty; row.revenue += l.price * l.qty; row.cost += l.cost * l.qty;
     byProduct.set(l.sku, row);
   }
-  const topProducts = Array.from(byProduct.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 4);
+  const topProducts = Array.from(byProduct.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 4).map(r => ({ ...r, profit: Math.round((r.revenue - r.cost) * 100) / 100 }));
   const byStaff = new Map<string, { orders: number; sales: number; discounts: number; refunds: number; profit: number }>();
   for (const s of visible) {
     const who = s.servedBy ?? "Unattributed";
@@ -525,7 +550,7 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
     </div>
 
     <div className="dash-toolbar">
-      <div className="select-wrap"><button className="select-button" onClick={()=>setRangeOpen(o=>!o)}>{rangeLabel} <ChevronDown size={14}/></button>{rangeOpen && <><button className="menu-backdrop" aria-label="Close range menu" onClick={()=>setRangeOpen(false)}/><div className="select-menu">{(["today",7,30,"all"] as ReportRange[]).map(r=><button key={String(r)} className={range===r?"on":""} onClick={()=>{setRange(r);setRangeOpen(false);}}>{r === "today" ? "Today" : r === "all" ? "All time" : `Last ${r} days`}</button>)}</div></>}</div>
+      <div className="select-wrap"><button className="select-button" onClick={()=>setRangeOpen(o=>!o)}>{rangeLabel} <ChevronDown size={14}/></button>{rangeOpen && <><button className="menu-backdrop" aria-label="Close range menu" onClick={()=>setRangeOpen(false)}/><div className="select-menu">{(["today",7,30,"month","custom","all"] as ReportRange[]).map(r=><button key={String(r)} className={range===r?"on":""} onClick={()=>{setRange(r); if(r!=="custom") setRangeOpen(false);}}>{r === "today" ? "Today" : r === "all" ? "All time" : r === "month" ? "This month" : r === "custom" ? "Custom date…" : `Last ${r} days`}</button>)}{range==="custom" && <div className="custom-dates" onClick={e=>e.stopPropagation()}><label>From<input type="date" value={customFrom} max={customTo || undefined} onChange={e=>setCustomFrom(e.target.value)}/></label><label>To<input type="date" value={customTo} min={customFrom || undefined} onChange={e=>setCustomTo(e.target.value)}/></label><button className="outline-button" onClick={()=>setRangeOpen(false)}>Apply</button></div>}</div></>}</div>
       <div className="select-wrap"><button className="select-button" onClick={()=>setCashierOpen(o=>!o)}>{cashier} <ChevronDown size={14}/></button>{cashierOpen && <><button className="menu-backdrop" aria-label="Close cashier menu" onClick={()=>setCashierOpen(false)}/><div className="select-menu">{["All cashiers",...cashiers].map(c=><button key={c} className={cashier===c?"on":""} onClick={()=>{setCashier(c);setCashierOpen(false);}}>{c}</button>)}</div></>}</div>
       <div className="select-wrap"><button className="select-button" onClick={()=>setCategoryOpen(o=>!o)}>{category} <ChevronDown size={14}/></button>{categoryOpen && <><button className="menu-backdrop" aria-label="Close category menu" onClick={()=>setCategoryOpen(false)}/><div className="select-menu">{["All categories",...categories].map(c=><button key={c} className={category===c?"on":""} onClick={()=>{setCategory(c);setCategoryOpen(false);}}>{c}</button>)}</div></>}</div>
       <div className="select-wrap"><button className="select-button" onClick={()=>setPaymentOpen(o=>!o)}>{payment} <ChevronDown size={14}/></button>{paymentOpen && <><button className="menu-backdrop" aria-label="Close payment menu" onClick={()=>setPaymentOpen(false)}/><div className="select-menu">{["All payments",...payments].map(m=><button key={m} className={payment===m?"on":""} onClick={()=>{setPayment(m);setPaymentOpen(false);}}>{m}</button>)}</div></>}</div>
@@ -546,7 +571,7 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
 
     <section className="dashboard-grid">
       <div className="panel">
-        <PanelHeader title="Sales trend" sub={`${metricLabel} per ${range === "all" ? "month" : "day"} — ${rangeLabel.toLowerCase()}, refunds excluded`}/>
+        <PanelHeader title="Sales trend" sub={`${metricLabel} per ${monthly ? "month" : "day"} — ${rangeLabel}, refunds excluded`}/>
         <div className="metric-tabs" role="tablist" aria-label="Chart metric">
           <button role="tab" aria-selected={metric==="revenue"} className={metric==="revenue"?"on":""} onClick={()=>setMetric("revenue")}>Revenue</button>
           <button role="tab" aria-selected={metric==="orders"} className={metric==="orders"?"on":""} onClick={()=>setMetric("orders")}>Orders</button>
@@ -581,7 +606,7 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
     <section className="dashboard-grid">
       <div className="panel table-panel">
         <PanelHeader title="Top products" sub="Best sellers in the current view" action="View all" onAction={()=>navigate("Reports")}/>
-        {topProducts.length===0 ? <div className="empty">No sales in this range.</div> : <DataTable headers={["PRODUCT","UNITS","REVENUE"]} rows={topProducts.map(r=>[r.name,String(r.qty),money(r.revenue)])}/>}
+        {topProducts.length===0 ? <div className="empty">No sales in this range.</div> : <DataTable headers={showProfit ? ["PRODUCT","QTY SOLD","SALES","PROFIT"] : ["PRODUCT","QTY SOLD","SALES"]} rows={topProducts.map(r=>showProfit ? [r.name,String(r.qty),money(r.revenue),money(r.profit)] : [r.name,String(r.qty),money(r.revenue)])}/>}
       </div>
       <div className="panel table-panel">
         <PanelHeader title="Staff performance" sub={canViewMoney(role) ? "Sales by team member" : "Sales by team member (totals only)"}/>
@@ -971,7 +996,7 @@ function LoginScreen({ onLogin, settings }: { onLogin: (name: string, role: Staf
 }
 
 type ReportsTab = "products" | "inventory";
-type ReportRange = "today" | 7 | 30 | "all";
+type ReportRange = "today" | 7 | 30 | "month" | "custom" | "all";
 
 function Reports({ sales, catalog }: { sales: Sale[]; catalog: Product[] }) {
   const [tab, setTab] = useState<ReportsTab>("products");
