@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ArrowDownRight, ArrowLeftRight, ArrowUpRight, Banknote, Bell, Box, Boxes, BriefcaseBusiness, Building2, ChevronDown, ChevronUp,
+  ArrowDownRight, ArrowLeftRight, ArrowUpRight, Banknote, Bell, Box, Boxes, BriefcaseBusiness, Building2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp,
   CircleDollarSign, ClipboardList, CreditCard, Download, FileBarChart, LayoutDashboard, LogOut, Menu,
   Package, Plus, Printer, ReceiptText, RotateCcw, Search, Settings, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Tag, Truck, Upload, Users, Wallet, X
 } from "lucide-react";
@@ -405,6 +405,10 @@ const pageInfo: Record<string, { title: string; subtitle: string; action?: strin
 export default function Home() {
   const [active, setActive] = useState("Dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Icon-rail collapse; persisted so the choice survives reloads.
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => { try { setCollapsed(window.localStorage.getItem("pos.sidebar") === "min"); } catch {} }, []);
+  const toggleCollapsed = () => setCollapsed(c => { const v = !c; try { window.localStorage.setItem("pos.sidebar", v ? "min" : "full"); } catch {} return v; });
   const [query, setQuery] = useState("");
   // Start from seed data so the UI renders instantly; real state hydrates from MongoDB below.
   const [sales, setSales] = useState<Sale[]>(seedSales);
@@ -627,11 +631,11 @@ export default function Home() {
 
   return <main className="app-shell">
     {sidebarOpen && <button className="sidebar-backdrop" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
-    <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
-      <div className="brand"><div className="brand-mark">{settings.name.charAt(0).toUpperCase()}</div><div><strong>{settings.name}</strong><span>POS SYSTEM</span></div><button className="mobile-close" onClick={() => setSidebarOpen(false)}><X size={19}/></button></div>
+    <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""} ${collapsed ? "collapsed" : ""}`}>
+      <div className="brand"><div className="brand-mark">{settings.name.charAt(0).toUpperCase()}</div><div><strong>{settings.name}</strong><span>POS SYSTEM</span></div><button className="mobile-close" onClick={() => setSidebarOpen(false)}><X size={19}/></button><button className="collapse-toggle" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand" : "Collapse"} onClick={toggleCollapsed}>{collapsed ? <ChevronRight size={15}/> : <ChevronLeft size={15}/>}</button></div>
       <div className="store-wrap">
-        <button className="store-switcher" aria-label="Switch store" onClick={() => setStoreOpen(o => !o)}><div className="store-icon"><Store size={17}/></div><div><span>🏪 {settings.name}</span><small>{settings.location} store</small></div><ChevronDown size={15}/></button>
-        {storeOpen && <><button className="menu-backdrop" aria-label="Close store menu" onClick={() => setStoreOpen(false)}/><div className="store-menu">
+        <button className="store-switcher" aria-label="Switch store" title={collapsed ? `${settings.name} — ${settings.location}` : undefined} onClick={() => setStoreOpen(o => !o)}><div className="store-icon"><Store size={17}/></div><div><span>🏪 {settings.name}</span><small>{settings.location} store</small></div><ChevronDown size={15}/></button>
+        {storeOpen && <><button className="menu-backdrop" aria-label="Close store menu" onClick={() => setStoreOpen(false)}/><div className={`store-menu ${collapsed ? "as-popout" : ""}`}>
           <p className="store-menu-label">Switch store</p>
           <button className="on" disabled><Store size={14}/> {settings.name} — {settings.location} <span>✓ current</span></button>
           <p className="store-menu-note">Other locations appear here once added.</p>
@@ -639,7 +643,7 @@ export default function Home() {
         </div></>}
       </div>
       <nav className="nav-list">{navGroups.map(group => <div key={group.title}><p className="nav-label">{group.title}</p>{group.items.map(([label, Icon]) => <button key={label} onClick={() => navigate(label)} className={`nav-item ${active === label ? "nav-active" : ""}`}><Icon size={18}/><span>{label}</span></button>)}</div>)}</nav>
-      <div className="sidebar-footer"><div className="help-card"><div className="help-icon">?</div><div><strong>Need help?</strong><span>View documentation</span></div></div><div className="profile-wrap"><div className="profile" role="button" tabIndex={0} aria-label={`View profile for ${session.name}`} onClick={() => setProfileOpen(o => !o)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setProfileOpen(o => !o); } }}><div className="avatar">{session.name.slice(0, 2).toUpperCase()}</div><div><strong>{session.name}</strong><span>{session.role}</span></div><ChevronUp size={14} className={`profile-chevron ${profileOpen ? "open" : ""}`}/></div>{profileOpen && <><button className="menu-backdrop" aria-label="Close profile" onClick={() => setProfileOpen(false)}/><div className="profile-popover" role="dialog" aria-label="Signed-in profile"><div className="profile-popover-head"><div className="avatar">{session.name.slice(0, 2).toUpperCase()}</div><div><strong>{session.name}</strong><span>{session.role}</span></div></div><dl className="profile-facts"><div><dt>Permissions</dt><dd>{me?.permissions ?? "—"}</dd></div><div><dt>Status</dt><dd>{me?.status ?? "Active"}</dd></div><div><dt>Signed in</dt><dd>{signedInAt ? signedInAt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—"}</dd></div></dl></div></>}</div><button className="logout-button" aria-label="Sign out" title={`Sign out ${session.name}`} onClick={() => { setSession(null); setProfileOpen(false); fetch("/api/auth/session", { method: "DELETE", credentials: "same-origin" }).catch(() => {}); navigate("Dashboard"); }}><LogOut size={15}/></button></div>
+      <div className="sidebar-footer"><div className="help-card"><div className="help-icon">?</div><div><strong>Need help?</strong><span>View documentation</span></div></div><div className="profile-wrap"><div className="profile" role="button" tabIndex={0} aria-label={`View profile for ${session.name}`} title={collapsed ? `${session.name} — ${session.role}` : undefined} onClick={() => setProfileOpen(o => !o)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setProfileOpen(o => !o); } }}><div className="avatar">{session.name.slice(0, 2).toUpperCase()}</div><div><strong>{session.name}</strong><span>{session.role}</span></div><ChevronUp size={14} className={`profile-chevron ${profileOpen ? "open" : ""}`}/></div>{profileOpen && <><button className="menu-backdrop" aria-label="Close profile" onClick={() => setProfileOpen(false)}/><div className={`profile-popover ${collapsed ? "as-popout" : ""}`} role="dialog" aria-label="Signed-in profile"><div className="profile-popover-head"><div className="avatar">{session.name.slice(0, 2).toUpperCase()}</div><div><strong>{session.name}</strong><span>{session.role}</span></div></div><dl className="profile-facts"><div><dt>Permissions</dt><dd>{me?.permissions ?? "—"}</dd></div><div><dt>Status</dt><dd>{me?.status ?? "Active"}</dd></div><div><dt>Signed in</dt><dd>{signedInAt ? signedInAt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—"}</dd></div></dl></div></>}</div><button className="logout-button" aria-label="Sign out" title={`Sign out ${session.name}`} onClick={() => { setSession(null); setProfileOpen(false); fetch("/api/auth/session", { method: "DELETE", credentials: "same-origin" }).catch(() => {}); navigate("Dashboard"); }}><LogOut size={15}/></button></div>
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && query.trim()) { e.preventDefault(); const t = query.trim(); if (/^#?inv/i.test(t)) { setOrderSearch(t.replace(/^#/, "")); navigate("Transactions"); } else { navigate("Products"); setQuery(t); } } }} placeholder="Search products, orders..."/><kbd className="search-kbd">Ctrl K</kbd></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
