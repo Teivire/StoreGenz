@@ -29,7 +29,8 @@ export type StoredProduct = Product & { _id: string };
 export type StoredSale = Sale & { _id: string; createdAt: Date; /** Subtotal − discount, snapshotted at sale time. */ saleTotal: number };
 export type StoredStaffLegacy = StaffMember & { _id: string };
 /** Single-store settings: identity used by the sidebar, login screen, and printed invoices. */
-export type StoreSettings = { name: string; location: string; receiptFooter: string; currency: string };
+export type PaymentMethodSetting = { name: string; enabled: boolean };
+export type StoreSettings = { name: string; location: string; receiptFooter: string; currency: string; paymentMethods?: PaymentMethodSetting[] };
 export type StoredSettings = StoreSettings & { _id: "settings" };
 
 /** Stock movement ledger: every stock change with who/why, newest-first reads. */
@@ -258,6 +259,11 @@ const DEFAULT_SETTINGS: StoreSettings = {
   location: "Phnom Penh",
   receiptFooter: "Thank you for shopping with us!",
   currency: "$",
+  paymentMethods: [
+    { name: "Cash", enabled: true },
+    { name: "ABA Pay", enabled: true },
+    { name: "Credit", enabled: true },
+  ],
 };
 
 export async function getSettingsCollection() {
@@ -274,6 +280,8 @@ export async function readSettings(): Promise<StoreSettings> {
       location: existing.location,
       receiptFooter: existing.receiptFooter,
       currency: existing.currency,
+      // Docs written before payment methods existed fall back to the defaults.
+      paymentMethods: existing.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
     };
   }
   const doc = { _id: "settings" as const, ...DEFAULT_SETTINGS };

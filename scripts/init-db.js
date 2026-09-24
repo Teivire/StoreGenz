@@ -107,7 +107,15 @@ const validators = {
         name: { bsonType: "string", minLength: 1, maxLength: 60 },
         location: { bsonType: "string", maxLength: 80 },
         receiptFooter: { bsonType: "string", maxLength: 120 },
-        currency: { bsonType: "string", minLength: 1, maxLength: 4 }
+        currency: { bsonType: "string", minLength: 1, maxLength: 4 },
+        paymentMethods: {
+          bsonType: "array",
+          minItems: 1,
+          items: { bsonType: "object", required: ["name", "enabled"], properties: {
+            name: { bsonType: "string", minLength: 1, maxLength: 40 },
+            enabled: { bsonType: "bool" }
+          } }
+        }
       }
     }
   },

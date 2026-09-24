@@ -21,7 +21,7 @@ const nextSku = (catalog: Product[]) => `SKU-${String(Math.floor(10000 + Math.ra
 type StaffRole = "Administrator" | "Manager" | "Cashier";
 type StaffMember = { name: string; role: StaffRole; permissions: string; status: "Active" | "Inactive" };
 type Session = { name: string; role: StaffRole };
-type StoreSettings = { name: string; location: string; receiptFooter: string; currency: string };
+type StoreSettings = { name: string; location: string; receiptFooter: string; currency: string; paymentMethods?: MethodSetting[] };
 const DEFAULT_SETTINGS: StoreSettings = { name: "StoreGenz", location: "Phnom Penh", receiptFooter: "", currency: "$" };
 /** Role rules, mirrored server-side by requireStaff() in lib/db.ts. */
 const CAN = {
@@ -85,6 +85,99 @@ type MovementLite = { sku: string; productName: string; delta: number; reason: s
 type TransferLite = { id: string; sku: string; productName: string; qty: number; from: string; to: string; note: string; by: string; createdAt: string };
 type CustomerLite = { id: string; name: string; phone: string; email: string; address: string; group: string; loyaltyPoints: number; note: string; createdBy: string; createdAt: string; updatedAt: string };
 type CustStatementLite = { id: string; name: string; group: string; phone: string; email: string; loyaltyPoints: number; owed: number; paid: number; balance: number; lastActivity: string };
+type MethodSetting = { name: string; enabled: boolean };
+
+/** Payments hub: one money-movement ledger across sales, refunds, customer and supplier payments. */
+function PaymentsHub({ sales, role }: { sales: Sale[]; role: StaffRole }) {
+  const tabs = ["All Payments", "Customer Payments", "Supplier Payments", "Refunds", "Payment Methods", "Payment Settings"] as const;
+  const [tab, setTab] = useState<(typeof tabs)[number]>("All Payments");
+  const isAdmin = role === "Administrator";
+  const refunded = sales.filter(s => s.status === "Refunded");
+  const cashIn = sales.filter(s => s.status === "Paid");
+  const pendingCredit = sales.filter(s => s.status === "Pending");
+  const { statements: custStatements } = useCustomers();
+  const { statements: supStatements } = useSuppliers();
+  const [methods, setMethods] = useState<MethodSetting[] | null>(null);
+  const loadMethods = useCallback(() => {
+    fetch("/api/settings").then(r => r.ok ? r.json() : Promise.reject()).then((d: StoreSettings) => setMethods(d.paymentMethods ?? null)).catch(() => setMethods([]));
+  }, []);
+  useEffect(loadMethods, [loadMethods]);
+  const custPaid = (custStatements ?? []).reduce((n, s) => n + s.paid, 0);
+  const supPaid = (supStatements ?? []).reduce((n, s) => n + s.paid, 0);
+  const totalIn = cashIn.reduce((n, s) => n + saleTotal(s), 0) + custPaid;
+  const totalOut = refunded.reduce((n, s) => n + saleTotal(s), 0) + supPaid;
+
+  const combined: { label: string; party: string; amount: number; dir: "in" | "out"; when: string }[] = [
+    ...cashIn.map(s => ({ label: s.id, party: s.customer, amount: saleTotal(s), dir: "in" as const, when: s.createdAt ?? "" })),
+    ...refunded.map(s => ({ label: s.id, party: s.customer, amount: saleTotal(s), dir: "out" as const, when: s.createdAt ?? "" })),
+    ...(custStatements ?? []).filter(s => s.paid > 0).map(s => ({ label: "Customer payment", party: s.name, amount: s.paid, dir: "in" as const, when: s.lastActivity })),
+    ...(supStatements ?? []).filter(s => s.paid > 0).map(s => ({ label: "Supplier payment", party: s.name, amount: s.paid, dir: "out" as const, when: s.lastActivity })),
+  ].sort((a, b) => b.when.localeCompare(a.when));
+
+  return <>
+    <PageHeading title="Payments" sub="Every payment in and out: sales, refunds, customer and supplier money"/>
+    <div className="subnav subnav-wrap">
+      {tabs.map(t => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t}</button>)}
+    </div>
+    {tab === "All Payments" && <div className="panel table-panel"><div className="toolbar"><strong>{`${combined.length} payment events · ${money(totalIn)} in · ${money(totalOut)} out`}</strong></div>
+      {combined.length === 0 ? <div className="empty">No payments yet — record a sale, refund, or customer/supplier payment.</div>
+        : <div className="table-wrap"><table><thead><tr>{["REFERENCE", "PARTY", "DIRECTION", "AMOUNT", "WHEN"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+          {combined.slice(0, 40).map((p, i) => <tr key={i}><td><strong>{p.label}</strong></td><td>{p.party}</td><td>{p.dir === "in" ? "In" : "Out"}</td><td style={{ color: p.dir === "in" ? "#3fb27f" : "#e07a5f" }}>{p.dir === "in" ? "+" : "−"}{money(p.amount)}</td><td>{p.when ? new Date(p.when).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—"}</td></tr>)}
+        </tbody></table></div>}
+    </div>}
+    {tab === "Customer Payments" && <CustomerPaymentsView canManage={CAN.manageProducts(role)}/>}
+    {tab === "Supplier Payments" && <SupplierPaymentsView canManage={CAN.manageProducts(role)}/>}
+    {tab === "Refunds" && <HubTable headers={["INVOICE", "CUSTOMER", "WHEN", "AMOUNT"]} empty="No refunds yet" rows={refunded.map(s => [s.id, s.customer, s.createdAt ? new Date(s.createdAt).toLocaleDateString() : (s.date || "—"), money(saleTotal(s))])}/>}
+    {tab === "Payment Methods" && <PaymentMethodsEditor methods={methods} reload={loadMethods} canEdit={isAdmin}/>}
+    {tab === "Payment Settings" && <div className="panel"><div className="toolbar"><strong>Payment policy</strong></div>
+      <div className="table-wrap"><table><thead><tr>{["POLICY", "VALUE"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+        <tr><td>Credit sales</td><td>Recorded as <strong>Pending</strong> until collected in Customers → Customer Payments</td></tr>
+        <tr><td>Cash handling</td><td>Change due computed at checkout; cash drawer reconciled in Transactions → Cash Drawer</td></tr>
+        <tr><td>Method changes</td><td>Administrator only — the POS reads the enabled list live</td></tr>
+        <tr><td>Currency</td><td>Set in Settings (store profile)</td></tr>
+      </tbody></table></div>
+      {pendingCredit.length > 0 && <p className="form-intro" style={{ margin: "10px 0 0" }}>{pendingCredit.length} credit sale{pendingCredit.length === 1 ? "" : "s"} awaiting collection ({money(pendingCredit.reduce((n, s) => n + saleTotal(s), 0))}).</p>}
+    </div>}
+  </>;
+}
+
+/** Enabled/disabled payment methods (admin-editable) — the POS reads this live. */
+function PaymentMethodsEditor({ methods, reload, canEdit }: { methods: MethodSetting[] | null; reload: () => void; canEdit: boolean }) {
+  const [draft, setDraft] = useState<MethodSetting[]>([]);
+  const [newName, setNewName] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setDraft(methods ?? []); }, [methods]);
+  const dirty = methods !== null && JSON.stringify(draft) !== JSON.stringify(methods);
+  const save = async () => {
+    setBusy(true); setError(null);
+    const res = await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ paymentMethods: draft }) });
+    const data = await res.json() as { error?: string };
+    setBusy(false);
+    if (res.ok) { setNotice("Payment methods saved — the POS accepts the enabled list now."); reload(); }
+    else setError(data.error ?? "Could not save payment methods.");
+  };
+  if (!canEdit) return <div className="panel empty-panel"><div className="empty"><strong>Administrators only</strong><p>Changing accepted payment methods requires an administrator.</p></div></div>;
+  return <div className="panel table-panel"><div className="toolbar"><strong>Accepted payment methods</strong>{dirty && <button className="primary-button" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save changes"}</button>}</div>
+    {methods === null ? <div className="empty">Loading…</div>
+      : methods.length === 0 ? <div className="empty">Could not load payment methods.</div>
+      : <>
+      <div className="table-wrap"><table><thead><tr>{["METHOD", "ACCEPTED", ""].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+        {draft.map((m, i) => <tr key={m.name}><td><strong>{m.name}</strong>{m.name === "Cash" && <span className="you-chip" style={{ marginLeft: 6 }}>always on</span>}</td>
+          <td><input type="checkbox" aria-label={`Accept ${m.name}`} checked={m.enabled} disabled={m.name === "Cash"} onChange={e => setDraft(d => d.map((x, j) => j === i ? { ...x, enabled: e.target.checked } : x))}/></td>
+          <td>{m.name !== "Cash" && <button className="text-button danger" aria-label={`Remove ${m.name}`} onClick={() => setDraft(d => d.filter((_, j) => j !== i))}><X size={14}/></button>}</td></tr>)}
+      </tbody></table></div>
+      <div className="po-line" style={{ marginTop: 10 }}>
+        <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="New method name (e.g. Wing, TrueMoney)" onKeyDown={e => { if (e.key === "Enter" && newName.trim()) { setDraft(d => [...d, { name: newName.trim(), enabled: true }]); setNewName(""); } }}/>
+        <button className="outline-button" disabled={!newName.trim() || draft.some(d => d.name.toLowerCase() === newName.trim().toLowerCase())} onClick={() => { setDraft(d => [...d, { name: newName.trim(), enabled: true }]); setNewName(""); }}><Plus size={14}/> Add method</button>
+      </div>
+      {notice && <p className="checkout-success success-banner" role="status">{notice}</p>}
+      {error && <p className="offline-banner error-banner" role="alert">{error}<button className="banner-close" aria-label="Dismiss" onClick={() => setError(null)}><X size={14}/></button></p>}
+      <p className="form-intro" style={{ margin: "10px 0 0" }}>Cash must stay enabled. Disabled methods disappear from the POS charge dialog immediately.</p>
+    </>}
+  </div>;
+}
 
 /** Shared customer data: directory + computed statements (credit owed vs payments). */
 function useCustomers() {
@@ -1194,7 +1287,7 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && query.trim()) { e.preventDefault(); const t = query.trim(); if (/^#?inv/i.test(t)) { setOrderSearch(t.replace(/^#/, "")); navigate("Transactions"); } else { navigate("Products"); setQuery(t); } } }} placeholder="Search products, orders..."/><kbd className="search-kbd">Ctrl K</kbd></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Payments" ? <PaymentsHub sales={sales} role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }
