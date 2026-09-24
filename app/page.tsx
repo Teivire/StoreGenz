@@ -1737,6 +1737,9 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
   const monthly = range === "all" || (range === "custom" && customValid && dayCount > 45);
   const rangeStart = range === "all" ? 0 : range === "month" ? monthStart : range === "custom" ? (customValid ? customFromTs : 0) : todayStart.getTime() - (range === "today" ? 0 : (range as 7 | 30) - 1) * DAY;
   const rangeEnd = range === "custom" && customValid ? customToTs + DAY : Infinity;
+  // An invalid/empty custom range must NOT silently widen to all time — keep the
+  // window empty so the numbers visibly respond once real dates are applied.
+  const customEmpty = range === "custom" && (!customValid || (!customFrom && !customTo));
   const rangeLabel = range === "today" ? "Today" : range === "all" ? "All time" : range === "month" ? "This month" : range === "custom" ? (customValid ? `${customFrom} → ${customTo || "today"}` : "Custom range") : `Last ${range} days`;
   const categories = Array.from(new Set(catalog.map(p => p.category))).sort();
   const payments = Array.from(new Set(sales.map(s => s.payment))).sort();
@@ -1744,7 +1747,7 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
 
   // Category filtering is applied per line — a mixed-category sale contributes its
   // matching lines to KPIs, charts, and tables alike.
-  const inRange = (s: Sale) => range === "all" || (s.createdAt ? new Date(s.createdAt).getTime() >= rangeStart && new Date(s.createdAt).getTime() < rangeEnd : false);
+  const inRange = (s: Sale) => range === "all" ? true : customEmpty ? false : s.createdAt ? new Date(s.createdAt).getTime() >= rangeStart && new Date(s.createdAt).getTime() < rangeEnd : false;
   const passes = (s: Sale) => {
     if (!inRange(s)) return false;
     if (cashier !== "All cashiers" && s.servedBy !== cashier) return false;
@@ -1804,13 +1807,6 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
     for (let i = 0; i < dayCount; i++) {
       const d = new Date(customFromTs + i * DAY);
       if (!buckets.has(d.toDateString())) buckets.set(d.toDateString(), { label: "", revenue: 0, orders:0, profit: 0, sort: d.getTime() });
-    }
-  }
-  if (range === 7 || range === 30) {
-    for (let i = 0; i < range; i++) {
-      const d = new Date(todayStart.getTime() - ((range as 7 | 30) - 1 - i) * DAY);
-      const key = d.toDateString();
-      if (!buckets.has(key)) buckets.set(key, { label: "", revenue: 0, orders: 0, profit: 0, sort: d.getTime() });
     }
   }
   const trend = Array.from(buckets.values()).sort((a, b) => a.sort - b.sort);
@@ -1926,7 +1922,7 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
     <section className="dashboard-grid">
       <div className="panel table-panel">
         <PanelHeader title="Recent transactions" sub="Latest sales activity across the store" action="View all" onAction={()=>navigate("Transactions")}/>
-        {sales.length===0 ? <div className="empty">No sales yet.</div> : <DataTable headers={["INVOICE","CUSTOMER","CASHIER","AMOUNT","PAYMENT","TIME","STATUS"]} rows={sales.slice(0,4).map(s=>[s.id,s.customer,s.servedBy??"—",money(saleTotal(s)),s.payment,s.date,s.status])}/>}
+        {sales.length===0 ? <div className="empty">No sales yet.</div> : <DataTable headers={["INVOICE","CUSTOMER","CASHIER","AMOUNT","PAYMENT","TIME","STATUS"]} rows={sales.slice(0,4).map(s=>[s.id,s.customer,s.servedBy??"—",money(saleTotal(s)),s.payment,s.createdAt ? new Date(s.createdAt).toLocaleString(undefined,{ dateStyle:"medium", timeStyle:"short" }) : s.date,s.status])}/>}
       </div>
       <div className="panel">
         <PanelHeader title="Low stock" sub="Products that need attention" action="View inventory" onAction={()=>navigate("Stock")}/>
