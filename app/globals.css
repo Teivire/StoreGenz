@@ -212,3 +212,20 @@ html,body{height:100%}
 .po-line select,.po-line input{padding:8px 9px;border:1px solid var(--line);border-radius:6px;font-size:12px;outline:none;background:#fff}
 .po-line select:focus,.po-line input:focus{border-color:#b9dcc9}
 .po-line .text-button{display:grid;place-items:center}
+
+/* ---- Auto-hide sidebar (desktop): rail slides away, hover the left edge to peek ---- */
+.sidebar-hotzone{display:none}
+.app-shell.sidebar-autohide .sidebar-hotzone{display:block;position:fixed;left:0;top:0;bottom:0;width:18px;z-index:6}
+.app-shell.sidebar-autohide .sidebar{transition:margin-left .18s ease, width .18s ease;z-index:7}
+.app-shell.sidebar-autohide .sidebar.autohide{margin-left:-250px}
+.app-shell.sidebar-autohide .sidebar.autohide.collapsed{margin-left:-64px}
+/* Peeking rail overlays the content; a subtle shadow hints at the slide-out */
+.app-shell.sidebar-autohide .sidebar.peek,.app-shell.sidebar-autohide .sidebar.peek.collapsed{position:fixed;top:0;bottom:0;left:0;margin-left:0;box-shadow:8px 0 24px rgba(23,33,43,.12)}
+/* Keep collapsed-rail popovers above the peeking rail */
+.app-shell.sidebar-autohide .sidebar.peek ~ .content .select-menu,
+.app-shell.sidebar-autohide .sidebar.peek ~ .content .store-menu,
+.app-shell.sidebar-autohide .sidebar.peek ~ .content .profile-popover{z-index:3}
+/* While peeking, the rail button says "pin"; topbar button reflects the mode */
+.app-shell.sidebar-autohide .sidebar.peek .collapse-toggle{color:#168957}
+@media(max-width:760px){.app-shell.sidebar-autohide .sidebar-hotzone{display:none}.app-shell.sidebar-autohide .sidebar{margin-left:0!important}}
+.rail-toggle.on{color:#168957}
