@@ -73,6 +73,35 @@ export type Purchase = {
 };
 export type StoredPurchase = Purchase & { _id: string };
 
+/** Supplier: vendor record; balances are computed from POs vs recorded payments. */
+export type Supplier = {
+  id: string;            // "SUP-<n>"
+  name: string;          // unique
+  phone: string;
+  email: string;
+  address: string;
+  group: string;         // "Default" until supplier groups exist
+  note: string;
+  createdBy: string;
+  createdAt: string;     // ISO
+  updatedAt: string;
+};
+export type StoredSupplier = Supplier & { _id: string };
+
+/** Supplier payment: money paid to a supplier, manager-gated; reduces the balance. */
+export type SupplierPayment = {
+  id: string;            // "PAY-<n>"
+  supplierId: string;    // Supplier.id
+  supplierName: string;  // denormalized for the ledger/history views
+  date: string;          // ISO
+  amount: number;        // positive; the payment IS money out
+  method: string;
+  note: string;
+  createdBy: string;
+  createdAt: string;     // ISO
+};
+export type StoredSupplierPayment = SupplierPayment & { _id: string };
+
 /** Category taxonomy: id/name/parentId/description/status/sortOrder + audit fields. */
 export type Category = {
   id: string;            // stable slug id ("beverages"), also the Mongo _id
@@ -158,6 +187,14 @@ export async function getExpensesCollection() {
 
 export async function getPurchasesCollection() {
   return (await getDb()).collection<StoredPurchase>("purchases");
+}
+
+export async function getSuppliersCollection() {
+  return (await getDb()).collection<StoredSupplier>("suppliers");
+}
+
+export async function getSupplierPaymentsCollection() {
+  return (await getDb()).collection<StoredSupplierPayment>("supplier_payments");
 }
 
 const DEFAULT_SETTINGS: StoreSettings = {
@@ -349,6 +386,22 @@ export function ensureSeeded(): Promise<void> {
           sortOrder: i * 10, createdBy: "system", createdAt: now, updatedAt: now,
         }));
       if (docs.length) await categories.insertMany(docs.map(d => ({ ...d, _id: d.id })));
+    }
+
+    // Seed suppliers from real PO history: one record per distinct supplier name
+    // seen on a purchase order, so existing POs attach to the new module instantly.
+    const supColl = db.collection<StoredSupplier>("suppliers");
+    if ((await supColl.countDocuments()) === 0) {
+      const poNames = await db.collection<StoredPurchase>("purchases").aggregate<{ _id: string }>([{ $group: { _id: "$supplier" } }]).toArray();
+      const now = new Date().toISOString();
+      const docs = poNames.map(u => u._id).filter((n): n is string => !!n && n.trim().length > 0)
+        .sort((a, b) => a.localeCompare(b))
+        .map((name, i) => ({
+          id: `SUP-${String(i + 1).padStart(4, "0")}`,
+          name, phone: "", email: "", address: "", group: "Default", note: "Seeded from purchase-order history",
+          createdBy: "system", createdAt: now, updatedAt: now,
+        }));
+      if (docs.length) await supColl.insertMany(docs.map(d => ({ ...d, _id: d.id })));
     }
 
     if ((await staff.countDocuments()) === 0) {

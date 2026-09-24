@@ -144,7 +144,7 @@ function PurchasesHub({ catalog, canManage }: { catalog: Product[]; canManage: b
             <td>{canManage && <div className="row-actions"><button className="text-button danger" onClick={() => { setError(null); setReceiveId(p.id); }} title="Details">View</button></div>}</td></tr>)}
         </tbody></table></div>}
     </div>}
-    {tab === "Supplier Payments" && <SoonPanel title="Supplier payments" what="Recording payments against received purchase orders (and supplier balances) comes with the Suppliers module — POs already carry their supplier name, so history will attach automatically."/>}
+    {tab === "Supplier Payments" && <SupplierPaymentsView canManage={canManage}/>}
     {tab === "Suppliers" && <div className="panel table-panel"><div className="toolbar"><strong>{purchases ? `${suppliers.length} supplier${suppliers.length === 1 ? "" : "s"} from order history` : "Loading…"}</strong></div>
       {!purchases ? <div className="empty">Loading…</div> : suppliers.length === 0 ? <div className="empty">No suppliers yet — they appear here once purchase orders exist.</div>
         : <DataTable headers={["SUPPLIER", "ORDERS", "LIFETIME VALUE", "PENDING", "LAST ORDER"]} rows={suppliers.map(s => [s.name, String(s.orders), money(s.value), String(s.pending), new Date(s.last).toLocaleDateString()])}/>}
@@ -152,6 +152,149 @@ function PurchasesHub({ catalog, canManage }: { catalog: Product[]; canManage: b
     {formOpen && <PurchaseFormModal catalog={catalog} onClose={() => setFormOpen(false)} onSaved={msg => { setFormOpen(false); setNotice(msg); load(); }}/>}
     {receiveId && <ReceiveModal po={(purchases ?? []).find(p => p.id === receiveId) ?? null} canManage={canManage} onClose={() => setReceiveId(null)} onConfirm={id => transition(id, "receive")}/>}
   </>;
+}
+
+const PAYMENT_METHODS = ["Cash", "Bank transfer", "ABA", "ACLEDA", "Card", "Cheque", "Other"];
+type SupplierLite = { id: string; name: string; phone: string; email: string; address: string; group: string; note: string; createdBy: string; createdAt: string; updatedAt: string };
+type StatementLite = { id: string; name: string; group: string; phone: string; email: string; ordered: number; paid: number; balance: number; lastActivity: string };
+type PaymentLite = { id: string; supplierId: string; supplierName: string; date: string; amount: number; method: string; note: string; createdBy: string; createdAt: string };
+
+/** Shared supplier data: directory + computed statements (ordered vs paid). */
+function useSuppliers() {
+  const [suppliers, setSuppliers] = useState<SupplierLite[] | null>(null);
+  const [statements, setStatements] = useState<StatementLite[] | null>(null);
+  const [orphans, setOrphans] = useState<string[]>([]);
+  const load = useCallback(() => {
+    fetch("/api/suppliers").then(r => r.ok ? r.json() : Promise.reject()).then(d => setSuppliers(d as SupplierLite[])).catch(() => setSuppliers([]));
+    fetch("/api/supplier-payments").then(r => r.ok ? r.json() : Promise.reject()).then((d: { statements: StatementLite[]; orphans: string[] }) => { setStatements(d.statements); setOrphans(d.orphans); }).catch(() => setStatements([]));
+  }, []);
+  useEffect(load, [load]);
+  return { suppliers, statements, orphans, load };
+}
+
+/** Supplier Payments tab: balances per supplier, ledger, manager-gated payment form. */
+function SupplierPaymentsView({ canManage, openPaymentFor }: { canManage: boolean; openPaymentFor?: string | null }) {
+  const { statements, orphans, load } = useSuppliers();
+  const [formOpen, setFormOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const list = statements ?? [];
+  const totalOwed = list.reduce((n, s) => n + Math.max(0, s.balance), 0);
+  return <>
+    <div className="panel table-panel"><div className="toolbar"><strong>{statements ? `${list.length} supplier${list.length === 1 ? "" : "s"} · ${money(totalOwed)} outstanding` : "Loading…"}</strong>
+      {canManage && <button className="primary-button" onClick={() => setFormOpen(true)}><Plus size={15}/> Record payment</button>}</div>
+      {!statements ? <div className="empty">Loading…</div>
+        : orphans.length > 0 && <p className="form-intro">Purchase orders exist for suppliers not yet in the directory: {orphans.join(", ")} — add them under the Suppliers tab to track balances.</p>}
+      {statements && list.length === 0 ? <div className="empty">No suppliers yet — add one under the Suppliers tab, or they appear automatically from purchase orders.</div>
+        : statements && <DataTable headers={["SUPPLIER", "ORDERED", "PAID", "BALANCE", "LAST ACTIVITY"]} rows={list.map(s => [s.name, money(s.ordered), money(s.paid), s.balance > 0 ? money(s.balance) : "Settled", new Date(s.lastActivity).toLocaleDateString()])}/>}
+    </div>
+    {notice && <p className="checkout-success success-banner" role="status">{notice}</p>}
+    {error && <p className="offline-banner error-banner" role="alert">{error}<button className="banner-close" aria-label="Dismiss" onClick={() => setError(null)}><X size={14}/></button></p>}
+    {formOpen && <PaymentFormModal onClose={() => setFormOpen(false)} onSaved={msg => { setFormOpen(false); setNotice(msg); load(); }} preselect={openPaymentFor ?? null}/>}
+  </>;
+}
+
+/** Record a supplier payment (manager+): supplier, amount, method. */
+function PaymentFormModal({ onClose, onSaved, preselect }: { onClose: () => void; onSaved: (msg: string) => void; preselect: string | null }) {
+  const { suppliers } = useSuppliers();
+  const [supplierId, setSupplierId] = useState(preselect ?? "");
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState("Cash");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true); setError(null);
+    const res = await fetch("/api/supplier-payments", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ supplierId, amount: Number(amount), method, note }) });
+    const data = await res.json() as { id?: string; error?: string };
+    if (res.ok) onSaved(`Payment ${data.id} recorded.`); else { setError(data.error ?? "Could not record payment."); setBusy(false); }
+  };
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={e => e.stopPropagation()}>
+    <div className="modal-header"><h2>Record supplier payment</h2><button aria-label="Close payment form" onClick={onClose}><X size={18}/></button></div>
+    {!suppliers ? <p className="form-intro">Loading suppliers…</p> : suppliers.length === 0 ? <p className="form-intro">No suppliers in the directory yet — add one first.</p> : <>
+      <label className="field"><span>Supplier</span>
+        <select value={supplierId} onChange={e => setSupplierId(e.target.value)}>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+      <label className="field"><span>Amount ($)</span><input type="number" min="0.01" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" autoFocus/></label>
+      <label className="field"><span>Method</span><select value={method} onChange={e => setMethod(e.target.value)}>{PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}</select></label>
+      <label className="field"><span>Note</span><input value={note} onChange={e => setNote(e.target.value)} placeholder="Optional reference (PO, invoice #)…"/></label>
+      {error && <p className="offline-banner error-banner" role="alert">{error}<button className="banner-close" aria-label="Dismiss" onClick={() => setError(null)}><X size={14}/></button></p>}
+      <div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy || !supplierId || !amount} onClick={submit}>{busy ? "Saving…" : "Record payment"}</button></div>
+    </>}
+  </div></div>;
+}
+
+/** Suppliers hub: directory, add form, groups, payments, per-supplier statements. */
+function SuppliersHub({ role }: { role: StaffRole }) {
+  const tabs = ["All Suppliers", "Add Supplier", "Supplier Groups", "Supplier Payments", "Supplier Statements"] as const;
+  const [tab, setTab] = useState<(typeof tabs)[number]>("All Suppliers");
+  const canManage = CAN.manageProducts(role);
+  const [formOpen, setFormOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const { suppliers, statements, load } = useSuppliers();
+  const groups = Array.from(new Set((suppliers ?? []).map(s => s.group))).sort();
+  return <>
+    <PageHeading title="Suppliers" sub="Vendor directory, payments, and statements" action={canManage ? "Add supplier" : undefined} onAction={() => setFormOpen(true)}/>
+    <div className="subnav subnav-wrap">
+      {tabs.map(t => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => { setTab(t); setNotice(null); }}>{t}</button>)}
+    </div>
+    {notice && <p className="checkout-success success-banner" role="status">{notice}</p>}
+    {tab === "All Suppliers" && <div className="panel table-panel"><div className="toolbar"><strong>{suppliers ? `${suppliers.length} supplier${suppliers.length === 1 ? "" : "s"}` : "Loading…"}</strong></div>
+      {!suppliers ? <div className="empty">Loading…</div> : suppliers.length === 0 ? <div className="empty">No suppliers yet — add one, or they appear automatically from purchase orders.</div>
+        : <DataTable headers={["SUPPLIER", "GROUP", "PHONE", "EMAIL", "BALANCE"]} rows={(statements ?? []).length === 0 ? suppliers.map(s => [s.name, s.group, s.phone || "—", s.email || "—", "—"]) : (statements ?? []).map(st => {
+          const s = suppliers.find(x => x.id === st.id);
+          return [st.name, st.group, s?.phone || "—", s?.email || "—", st.balance > 0 ? money(st.balance) : "Settled"];
+        })}/>}
+    </div>}
+    {tab === "Add Supplier" && (canManage ? <SupplierFormInline onSaved={msg => { setNotice(msg); load(); setTab("All Suppliers"); }}/> : <div className="panel"><div className="empty">Manager or admin access required to add suppliers.</div></div>)}
+    {tab === "Supplier Groups" && <div className="panel table-panel"><div className="toolbar"><strong>{suppliers ? `${groups.length} group${groups.length === 1 ? "" : "s"}` : "Loading…"}</strong></div>
+      {!suppliers ? <div className="empty">Loading…</div> : groups.length === 0 ? <div className="empty">No groups yet.</div>
+        : <DataTable headers={["GROUP", "SUPPLIERS", "OUTSTANDING"]} rows={groups.map(g => {
+          const inG = (statements ?? []).filter(st => st.group === g);
+          return [g, String(inG.length), money(inG.reduce((n, s) => n + Math.max(0, s.balance), 0))];
+        })}/>}
+    </div>}
+    {tab === "Supplier Payments" && <SupplierPaymentsView canManage={canManage}/>}
+    {tab === "Supplier Statements" && <div className="panel table-panel"><div className="toolbar"><strong>Per-supplier statement: ordered vs paid</strong></div>
+      {!statements ? <div className="empty">Loading…</div> : statements.length === 0 ? <div className="empty">No suppliers yet.</div>
+        : <div className="table-wrap"><table><thead><tr>{["SUPPLIER", "ORDERED", "PAID", "BALANCE", "LAST ACTIVITY"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+          {statements.map(st => <tr key={st.id}><td><strong>{st.name}</strong></td><td>{money(st.ordered)}</td><td>{money(st.paid)}</td><td>{st.balance > 0 ? money(st.balance) : "Settled"}</td><td>{new Date(st.lastActivity).toLocaleDateString()}</td></tr>)}
+        </tbody></table></div>}
+    </div>}
+    {formOpen && <SupplierFormModal onClose={() => setFormOpen(false)} onSaved={msg => { setFormOpen(false); setNotice(msg); load(); }}/>}
+  </>;
+}
+
+/** Add-supplier form, inline panel (Add Supplier tab) or modal (+ button). */
+function SupplierForm({ onDone, inline }: { onDone: (name: string) => Promise<boolean>; inline?: boolean }) {
+  const [name, setName] = useState(""); const [phone, setPhone] = useState(""); const [email, setEmail] = useState("");
+  const [address, setAddress] = useState(""); const [group, setGroup] = useState("Default"); const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true); setError(null);
+    const res = await fetch("/api/suppliers", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ name, phone, email, address, group, note }) });
+    const data = await res.json() as { error?: string };
+    if (res.ok) { if (await onDone(name)) { setName(""); setPhone(""); setEmail(""); setAddress(""); setGroup("Default"); setNote(""); } setBusy(false); }
+    else { setError(data.error ?? "Could not create supplier."); setBusy(false); }
+  };
+  const fields = <>
+    <label className="field"><span>Name *</span><input value={name} onChange={e => setName(e.target.value)} placeholder="Supplier name" autoFocus/></label>
+    <label className="field"><span>Phone</span><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Optional"/></label>
+    <label className="field"><span>Email</span><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Optional"/></label>
+    <label className="field"><span>Address</span><input value={address} onChange={e => setAddress(e.target.value)} placeholder="Optional"/></label>
+    <label className="field"><span>Group</span><input value={group} onChange={e => setGroup(e.target.value)} placeholder="Default"/></label>
+    <label className="field"><span>Note</span><input value={note} onChange={e => setNote(e.target.value)} placeholder="Optional"/></label>
+    {error && <p className="offline-banner error-banner" role="alert">{error}<button className="banner-close" aria-label="Dismiss" onClick={() => setError(null)}><X size={14}/></button></p>}
+    <div className="modal-actions"><button className="primary-button" disabled={busy || !name.trim()} onClick={submit}>{busy ? "Saving…" : "Save supplier"}</button></div>
+  </>;
+  return inline ? <div className="panel purchase-form-panel"><div className="toolbar"><strong>New supplier</strong></div>{fields}</div>
+    : <div className="modal-backdrop" onClick={() => {}}><div className="modal" onClick={e => e.stopPropagation()}>
+      <div className="modal-header"><h2>Add supplier</h2></div>{fields}</div></div>;
+}
+function SupplierFormInline({ onSaved }: { onSaved: (msg: string) => void }) {
+  return <SupplierForm inline onDone={async name => { onSaved(`Supplier "${name}" added.`); return true; }}/>;
+}
+function SupplierFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: (msg: string) => void }) {
+  return <SupplierForm onDone={async name => { onSaved(`Supplier "${name}" added.`); onClose(); return false; }}/>;
 }
 
 /** Receive confirmation: shows exactly what will land in stock before committing. */
@@ -469,6 +612,7 @@ function StockHub({ catalog, canManage, onAdjust }: { catalog: Product[]; canMan
 function ReportsHub({ sales, catalog, role }: { sales: Sale[]; catalog: Product[]; role: StaffRole }) {
   const [expenses, setExpenses] = useState<ExpenseLite[]>([]);
   useEffect(() => { let alive = true; fetch("/api/expenses").then(r => r.ok ? r.json() : Promise.reject()).then(d => { if (alive) setExpenses(d as ExpenseLite[]); }).catch(() => {}); return () => { alive = false; }; }, []);
+  const { statements: supplierStatements } = useSuppliers();
   const groups: { group: string; views: string[] }[] = [
     { group: "Sales", views: ["Sales Overview", "Sales Transactions", "Sales by Product", "Sales by Category", "Sales by Customer", "Sales by Cashier"] },
     { group: "Purchases", views: ["Purchase Summary", "Purchase by Product", "Purchase by Supplier", "Purchase Returns"] },
@@ -516,7 +660,10 @@ function ReportsHub({ sales, catalog, role }: { sales: Sale[]; catalog: Product[
       case "Profit & Loss": { const expenseTotal = expenses.reduce((n, e) => n + e.amount, 0); return <HubTable headers={["LINE", "AMOUNT"]} empty="No data" rows={showMoney ? [["Revenue", money(revenue)], ["Cost of goods sold", money(-cost)], ["Gross profit", money(revenue - cost)], ["Refunds", money(-refundAmt)], ["Operating expenses", money(-expenseTotal)], ["Net", money(revenue - cost - refundAmt - expenseTotal)]] : [["Sign in as a manager", "—"]]} />; } 
       case "Refunds": return <HubTable headers={["INVOICE", "CUSTOMER", "DATE", "AMOUNT", "REASON"]} empty="No refunds yet" rows={refunded.map(s => [s.id, s.customer, s.date, money(saleTotal(s)), s.refundReason || "—"])}/>; 
       case "Expenses": return <HubTable headers={["ID", "DATE", "CATEGORY", "AMOUNT"]} empty="No expenses recorded yet" rows={[...expenses].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 40).map(e => [e.id, new Date(e.date).toLocaleDateString(), e.category, money(-e.amount)])}/>;  
-      case "Customer Summary": case "Customer Sales": case "Customer Balance": return <HubTable headers={["CUSTOMER", "ORDERS", "SALES"]} empty="No customers yet" rows={groupBy("customer")}/>; 
+      case "Customer Summary": case "Customer Sales": case "Customer Balance": return <HubTable headers={["CUSTOMER", "ORDERS", "SALES"]} empty="No customers yet" rows={groupBy("customer")}/>;
+      case "Supplier Summary": return <HubTable headers={["SUPPLIER", "ORDERED", "PAID", "BALANCE"]} empty="No suppliers yet" rows={(supplierStatements ?? []).map(st => [st.name, money(st.ordered), money(st.paid), st.balance > 0 ? money(st.balance) : "Settled"])}/>;
+      case "Supplier Balance": return <HubTable headers={["SUPPLIER", "BALANCE", "LAST ACTIVITY"]} empty="No suppliers yet" rows={(supplierStatements ?? []).filter(st => st.balance > 0).map(st => [st.name, money(st.balance), new Date(st.lastActivity).toLocaleDateString()])}/>;
+      case "Supplier Payments": return <HubTable headers={["SUPPLIER", "ORDERED", "PAID", "BALANCE", "LAST ACTIVITY"]} empty="No suppliers yet" rows={(supplierStatements ?? []).map(st => [st.name, money(st.ordered), money(st.paid), st.balance > 0 ? money(st.balance) : "Settled", new Date(st.lastActivity).toLocaleDateString()])}/>; 
       case "Loyalty Points": return <SoonPanel title="Loyalty points" what="Points accrual and redemption will be computed here once the loyalty module is built."/>; 
       case "Register Summary": case "Shift Report": { const cash = counted.filter(s => s.payment === "Cash").reduce((n, s) => n + saleTotal(s), 0); return <HubTable headers={["ITEM", "AMOUNT"]} empty="No data" rows={[["Cash sales", money(cash)], ["Card / ABA sales", money(revenue - cash)], ["Refunds", money(refundAmt)], ["Expected drawer cash", money(cash - refundAmt)]]}/>; } 
       case "Staff Performance": case "Cashier Sales": return <HubTable headers={["CASHIER", "ORDERS", "SALES"]} empty="No sales yet" rows={groupBy("servedBy")}/>; 
@@ -843,7 +990,7 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && query.trim()) { e.preventDefault(); const t = query.trim(); if (/^#?inv/i.test(t)) { setOrderSearch(t.replace(/^#/, "")); navigate("Transactions"); } else { navigate("Products"); setQuery(t); } } }} placeholder="Search products, orders..."/><kbd className="search-kbd">Ctrl K</kbd></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" ? <StockHub catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role)}/> : active === "Cash Register" ? <Finance sales={sales}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" ? <StockHub catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Cash Register" ? <Finance sales={sales}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }

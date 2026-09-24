@@ -204,6 +204,43 @@ const validators = {
         returnedAt: { bsonType: "string" }
       }
     }
+  },
+  suppliers: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "id", "name", "phone", "email", "address", "group", "note", "createdBy", "createdAt", "updatedAt"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        id: { bsonType: "string", pattern: "^SUP-\\d+$" },
+        name: { bsonType: "string", minLength: 1, maxLength: 80 },
+        phone: { bsonType: "string", maxLength: 40 },
+        email: { bsonType: "string", maxLength: 120 },
+        address: { bsonType: "string", maxLength: 200 },
+        group: { bsonType: "string", minLength: 1, maxLength: 40 },
+        note: { bsonType: "string", maxLength: 200 },
+        createdBy: { bsonType: "string" },
+        createdAt: { bsonType: "string" },
+        updatedAt: { bsonType: "string" }
+      }
+    }
+  },
+  supplier_payments: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "id", "supplierId", "supplierName", "date", "amount", "method", "note", "createdBy", "createdAt"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        id: { bsonType: "string", pattern: "^SPP-\\d+$" },
+        supplierId: { bsonType: "string", minLength: 1 },
+        supplierName: { bsonType: "string", minLength: 1 },
+        date: { bsonType: "string" },
+        amount: { bsonType: "number", minimum: 0.01 },
+        method: { bsonType: "string", minLength: 1, maxLength: 40 },
+        note: { bsonType: "string", maxLength: 200 },
+        createdBy: { bsonType: "string" },
+        createdAt: { bsonType: "string" }
+      }
+    }
   }
 };
 
@@ -244,6 +281,14 @@ const indexes = {
   purchases: [
     { key: { createdAt: -1 }, name: "createdAt_-1" },
     { key: { status: 1, createdAt: -1 }, name: "status_1_createdAt_-1" }
+  ],
+  suppliers: [
+    { key: { name: 1 }, name: "name_1" },
+    { key: { group: 1, name: 1 }, name: "group_1_name_1" }
+  ],
+  supplier_payments: [
+    { key: { date: -1 }, name: "date_-1" },
+    { key: { supplierId: 1, date: -1 }, name: "supplierId_1_date_-1" }
   ]
 };
 
