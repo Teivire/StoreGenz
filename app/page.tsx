@@ -82,6 +82,63 @@ const money = (n: number) => `${n < 0 ? "-" : ""}$${Math.abs(n).toFixed(2)}`;
 type PurchaseLite = { id: string; supplier: string; lines: { sku: string; name: string; qty: number; cost: number }[]; status: "Pending" | "Received" | "Returned"; note: string; createdBy: string; createdAt: string; receivedAt?: string; returnedAt?: string };
 type ExpenseLite = { id: string; date: string; category: string; amount: number; note: string; createdBy: string; createdAt: string };
 type MovementLite = { sku: string; productName: string; delta: number; reason: string; note: string; by: string; refId: string; createdAt: string };
+type TransferLite = { id: string; sku: string; productName: string; qty: number; from: string; to: string; note: string; by: string; createdAt: string };
+
+/** Stock transfers: real movements between locations, paired ledger entries, stock net-zero. */
+function StockTransfersView({ catalog, canManage }: { catalog: Product[]; canManage: boolean }) {
+  const [transfers, setTransfers] = useState<TransferLite[] | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(() => {
+    fetch("/api/transfers").then(r => r.ok ? r.json() : Promise.reject()).then(d => setTransfers(d as TransferLite[])).catch(() => setTransfers([]));
+  }, []);
+  useEffect(load, [load]);
+  const totalMoved = (transfers ?? []).reduce((n, t) => n + t.qty, 0);
+  return <>
+    <div className="panel table-panel"><div className="toolbar"><strong>{transfers ? `${transfers.length} transfer${transfers.length === 1 ? "" : "s"} · ${totalMoved} unit${totalMoved === 1 ? "" : "s"} moved` : "Loading…"}</strong>
+      {canManage && <button className="primary-button" onClick={() => setFormOpen(true)}><Plus size={15}/> New transfer</button>}</div>
+      {!transfers ? <div className="empty">Loading…</div> : transfers.length === 0 ? <div className="empty">No transfers yet — managers record them to move stock between locations (e.g. Warehouse → Storefront).</div>
+        : <DataTable headers={["ID", "PRODUCT", "QTY", "FROM", "TO", "BY", "WHEN"]} rows={transfers.map(t => [t.id, t.productName + (t.note ? ` · ${t.note}` : ""), String(t.qty), t.from, t.to, t.by, new Date(t.createdAt).toLocaleDateString()])}/>}
+    </div>
+    {notice && <p className="checkout-success success-banner" role="status">{notice}</p>}
+    {error && <p className="offline-banner error-banner" role="alert">{error}<button className="banner-close" aria-label="Dismiss" onClick={() => setError(null)}><X size={14}/></button></p>}
+    {formOpen && <TransferFormModal catalog={catalog} onClose={() => setFormOpen(false)} onSaved={msg => { setFormOpen(false); setNotice(msg); load(); }}/>}
+  </>;
+}
+
+/** New transfer form: product, qty (validated against stock), from/to locations. */
+function TransferFormModal({ catalog, onClose, onSaved }: { catalog: Product[]; onClose: () => void; onSaved: (msg: string) => void }) {
+  const [sku, setSku] = useState(catalog[0]?.sku ?? "");
+  const [qty, setQty] = useState("1");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const selected = catalog.find(p => p.sku === sku);
+  const submit = async () => {
+    setBusy(true); setError(null);
+    const res = await fetch("/api/transfers", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ sku, qty: Number(qty), from, to, note }) });
+    const data = await res.json() as { id?: string; error?: string };
+    if (res.ok) onSaved(`Transfer ${data.id} recorded — ${qty} × ${selected?.name} moved.`);
+    else { setError(data.error ?? "Could not record transfer."); setBusy(false); }
+  };
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={e => e.stopPropagation()}>
+    <div className="modal-header"><h2>New stock transfer</h2><button aria-label="Close transfer form" onClick={onClose}><X size={18}/></button></div>
+    {catalog.length === 0 ? <p className="form-intro">No products in the catalog yet.</p> : <>
+      <label className="field"><span>Product</span>
+        <select value={sku} onChange={e => { setSku(e.target.value); setQty("1"); }}>{catalog.map(p => <option key={p.sku} value={p.sku}>{p.name}</option>)}</select></label>
+      <p className="form-intro">In stock: <strong>{selected?.stock ?? 0}</strong> unit{(selected?.stock ?? 0) === 1 ? "" : "s"} — transfers move units between locations; the total stays the same.</p>
+      <label className="field"><span>Quantity</span><input type="number" min="1" max={selected?.stock ?? undefined} value={qty} onChange={e => setQty(e.target.value)} autoFocus/></label>
+      <label className="field"><span>From *</span><input value={from} onChange={e => setFrom(e.target.value)} placeholder="e.g. Warehouse"/></label>
+      <label className="field"><span>To *</span><input value={to} onChange={e => setTo(e.target.value)} placeholder="e.g. Storefront — Siem Reap"/></label>
+      <label className="field"><span>Note</span><input value={note} onChange={e => setNote(e.target.value)} placeholder="Optional reason or reference"/></label>
+      {error && <p className="offline-banner error-banner" role="alert">{error}<button className="banner-close" aria-label="Dismiss" onClick={() => setError(null)}><X size={14}/></button></p>}
+      <div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy || !sku || !from.trim() || !to.trim() || !(Number(qty) >= 1)} onClick={submit}>{busy ? "Recording…" : "Record transfer"}</button></div>
+    </>}
+  </div></div>;
+}
 
 /** Purchases hub: PO management, receiving, history, returns, supplier payments, suppliers. */
 function PurchasesHub({ catalog, canManage }: { catalog: Product[]; canManage: boolean }) {
@@ -474,7 +531,7 @@ function TransactionsHub({ sales, onRefund, storeName, storeLocation, receiptFoo
       {!movements ? <div className="empty">Loading…</div> : movements.filter(m => m.reason === "adjustment").length === 0 ? <div className="empty">No manual adjustments recorded — stock corrections land here from the Stock page.</div>
         : <DataTable headers={["PRODUCT", "SKU", "CHANGE", "NOTE", "BY", "WHEN"]} rows={movements.filter(m => m.reason === "adjustment").map(m => [m.productName, m.sku, `${m.delta > 0 ? "+" : ""}${m.delta}`, m.note || "—", m.by, new Date(m.createdAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })])}/>}
     </div>}
-    {tab === "Stock Transfers" && <SoonPanel title="Stock transfers" what="Moving stock between locations will be recorded here once multi-store locations exist."/>}
+    {tab === "Stock Transfers" && <StockTransfersView catalog={catalog} canManage={canManage}/>}
     {tab === "Cash Drawer" && <div className="panel table-panel"><div className="toolbar"><strong>Cash drawer — today</strong></div>
       <DataTable headers={["ITEM", "AMOUNT", "DETAIL"]} rows={[
         ["Cash sales", money(cashSales.reduce((n, s) => n + saleTotal(s), 0)), `${cashSales.length} cash sale${cashSales.length === 1 ? "" : "s"}`],
@@ -568,7 +625,7 @@ function ProductsHub({ catalog, sales, query, onQuery, onUpsert, onDelete, onAdj
 
 /** Stock hub: 7 views over the live catalog and the movement ledger. */
 function StockHub({ catalog, canManage, onAdjust }: { catalog: Product[]; canManage: boolean; onAdjust: (sku: string, delta: number) => void }) {
-  const tabs = ["Stock Overview", "Stock Movement", "Stock Adjustment", "Stock Transfer", "Low Stock", "Out of Stock", "Stock Count"] as const;
+  const tabs = ["Stock Overview", "Stock Movement", "Stock Adjustment", "Stock Transfer", "Stock Count", "Low Stock", "Out of Stock"] as const;
   const [tab, setTab] = useState<(typeof tabs)[number]>("Stock Overview");
   const [movements, setMovements] = useState<{ sku: string; productName: string; delta: number; reason: string; note: string; by: string; refId: string; createdAt: string }[] | null>(null);
   useEffect(() => {
@@ -599,7 +656,7 @@ function StockHub({ catalog, canManage, onAdjust }: { catalog: Product[]; canMan
         )}</tbody></table></div>}
     </div>}
     {tab === "Stock Adjustment" && (canManage ? <StockAdjustment catalog={catalog} onAdjust={onAdjust} onDone={() => {}}/> : <div className="panel empty-panel"><div className="empty"><strong>Managers only</strong><p>Ask a manager or administrator to record stock adjustments.</p></div></div>)}
-    {tab === "Stock Transfer" && <SoonPanel title="Stock transfers" what="Transfers between locations will be recorded here with in/out ledger entries once multi-store exists."/>}
+    {tab === "Stock Transfer" && <StockTransfersView catalog={catalog} canManage={canManage}/>}
     {tab === "Low Stock" && <HubTable headers={["PRODUCT", "SKU", "STOCK", "STATUS"]} empty="No low-stock products" rows={low.map(p => [p.name, p.sku, `${p.stock} units`, "Low stock"])}/>}
     {tab === "Out of Stock" && <HubTable headers={["PRODUCT", "SKU", "STOCK", "STATUS"]} empty="Nothing is out of stock" rows={out.map(p => [p.name, p.sku, "0 units", "Out of stock"])}/>}
     {tab === "Stock Count" && <div className="panel table-panel"><div className="toolbar"><strong>Expected vs recorded</strong></div>

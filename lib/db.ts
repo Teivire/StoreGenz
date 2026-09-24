@@ -102,6 +102,20 @@ export type SupplierPayment = {
 };
 export type StoredSupplierPayment = SupplierPayment & { _id: string };
 
+/** Stock transfer: units moved between locations; total stock unchanged (paired ledger entries). */
+export type StockTransfer = {
+  id: string;            // "TRF-<n>"
+  sku: string;
+  productName: string;
+  qty: number;
+  from: string;
+  to: string;
+  note: string;
+  by: string;            // staff name
+  createdAt: string;     // ISO
+};
+export type StoredStockTransfer = StockTransfer & { _id: string };
+
 /** Category taxonomy: id/name/parentId/description/status/sortOrder + audit fields. */
 export type Category = {
   id: string;            // stable slug id ("beverages"), also the Mongo _id
@@ -195,6 +209,10 @@ export async function getSuppliersCollection() {
 
 export async function getSupplierPaymentsCollection() {
   return (await getDb()).collection<StoredSupplierPayment>("supplier_payments");
+}
+
+export async function getTransfersCollection() {
+  return (await getDb()).collection<StoredStockTransfer>("stock_transfers");
 }
 
 const DEFAULT_SETTINGS: StoreSettings = {

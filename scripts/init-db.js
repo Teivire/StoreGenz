@@ -241,6 +241,24 @@ const validators = {
         createdAt: { bsonType: "string" }
       }
     }
+  },
+  stock_transfers: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "id", "sku", "productName", "qty", "from", "to", "note", "by", "createdAt"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        id: { bsonType: "string", pattern: "^TRF-\\d+$" },
+        sku: { bsonType: "string", minLength: 1 },
+        productName: { bsonType: "string", minLength: 1 },
+        qty: { bsonType: "int", minimum: 1 },
+        from: { bsonType: "string", minLength: 1, maxLength: 80 },
+        to: { bsonType: "string", minLength: 1, maxLength: 80 },
+        note: { bsonType: "string", maxLength: 200 },
+        by: { bsonType: "string", minLength: 1 },
+        createdAt: { bsonType: "string" }
+      }
+    }
   }
 };
 
@@ -289,6 +307,10 @@ const indexes = {
   supplier_payments: [
     { key: { date: -1 }, name: "date_-1" },
     { key: { supplierId: 1, date: -1 }, name: "supplierId_1_date_-1" }
+  ],
+  stock_transfers: [
+    { key: { createdAt: -1 }, name: "createdAt_-1" },
+    { key: { sku: 1, createdAt: -1 }, name: "sku_1_createdAt_-1" }
   ]
 };
 

@@ -196,8 +196,11 @@ async function main() {
   const c2 = new MongoClient(process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/storegenz");
   await c2.connect();
   const removed = await c2.db().collection("sales").deleteMany({ "lines.sku": { $in: [SKU, PAY_SKU] } });
+  // Also remove the scratch sales' stock-movement entries so the ledger keeps
+  // netting to current stock (Stock Count reconciles ledger-net vs product stock).
+  const movs = await c2.db().collection("stock_movements").deleteMany({ sku: { $in: [SKU, PAY_SKU] }, reason: { $in: ["sale", "refund"] } });
   await c2.close();
-  console.log(`cleanup: scratch product + ${removed.deletedCount} sale(s) removed`);
+  console.log(`cleanup: scratch product + ${removed.deletedCount} sale(s) + ${movs.deletedCount} movement(s) removed`);
 
   if (failures > 0) { console.error(`\nFAILED: ${failures} case(s).`); process.exit(1); }
   console.log("\nPASSED: API contract holds.");

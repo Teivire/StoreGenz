@@ -54,8 +54,9 @@ async function main() {
   const uri = resolveUri();
   const client = new MongoClient(uri);
   await client.connect();
-  const products = client.db().collection("products");
-  const sales = client.db().collection("sales");
+  const db = client.db();
+  const products = db.collection("products");
+  const sales = db.collection("sales");
 
   const sku = "SKU-RACECHK";
   console.log(`verify-concurrency against ${BASE} (db: ${client.db().databaseName})`);
@@ -98,6 +99,9 @@ async function main() {
     const del = await fetch(`${BASE}/api/products/${sku}`, { method: "DELETE", headers });
     if (!del.ok) console.warn(`  ! could not delete scratch product via API: ${await del.text()}`);
     const removed = await sales.deleteMany({ "lines.sku": sku });
+    // Remove the probe sales' movement entries so the ledger keeps reconciling
+    // to current stock (Stock Count nets the ledger per product).
+    await db.collection("stock_movements").deleteMany({ sku, reason: { $in: ["sale", "refund"] } });
     const left = await products.findOne({ _id: sku });
     if (left) await products.deleteOne({ _id: sku }); // belt and braces
     console.log(`  cleanup: scratch product + ${removed.deletedCount} probe sale${removed.deletedCount === 1 ? "" : "s"} removed`);
