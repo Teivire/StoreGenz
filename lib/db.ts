@@ -102,13 +102,27 @@ export type Sale = {
   /** Cash handling: amount the customer handed over and the change owed (server-computed). */
   amountPaid?: number;
   changeDue?: number;
+  /** Tax charged (exclusive: added on top; inclusive: portion of the total) — snapshot at sale time. */
+  taxAmount?: number;
 };
 export type StoredProduct = Product & { _id: string };
-export type StoredSale = Sale & { _id: string; createdAt: Date; /** Subtotal − discount, snapshotted at sale time. */ saleTotal: number };
+export type StoredSale = Sale & { _id: string; createdAt: Date; /** Subtotal − discount, snapshotted at sale time. */ saleTotal: number; /** Tax charged on this sale (Settings → Taxes), snapshotted at sale time. */ taxAmount?: number };
 export type StoredStaffLegacy = StaffMember & { _id: string };
-/** Single-store settings: identity used by the sidebar, login screen, and printed invoices. */
+/** Loyalty tier: name plus the point balance where the tier starts. */
+export type LoyaltyTier = { name: string; min: number };
+/** Single-store settings: identity, POS policy, tax, loyalty, and printed-invoice config. */
 export type PaymentMethodSetting = { name: string; enabled: boolean };
-export type StoreSettings = { name: string; location: string; receiptFooter: string; currency: string; paymentMethods?: PaymentMethodSetting[]; registerOpeningFloat?: number; registerVarianceAlert?: number };
+export type StoreSettings = {
+  name: string; location: string; receiptFooter: string; currency: string;
+  paymentMethods?: PaymentMethodSetting[];
+  registerOpeningFloat?: number; registerVarianceAlert?: number;
+  /** Tax (Settings → Taxes): exclusive adds on top at checkout; inclusive divides out of the shelf price. */
+  taxEnabled?: boolean; taxRatePercent?: number; taxLabel?: string; taxInclusive?: boolean;
+  /** Sales/inventory policy (Settings → POS & Sales). */
+  allowNegativeStock?: boolean; lowStockThreshold?: number; maxDiscountPercent?: number;
+  /** Loyalty program (Settings → Loyalty): whole points per currency unit on Paid sales. */
+  loyaltyEnabled?: boolean; loyaltyEarnRate?: number; loyaltyTiers?: LoyaltyTier[];
+};
 export type StoredSettings = StoreSettings & { _id: "settings" };
 
 /** Stock movement ledger: every stock change with who/why, newest-first reads. */
@@ -437,6 +451,20 @@ const DEFAULT_SETTINGS: StoreSettings = {
     { name: "ABA Pay", enabled: true },
     { name: "Credit", enabled: true },
   ],
+  taxEnabled: false,
+  taxRatePercent: 0,
+  taxLabel: "VAT",
+  taxInclusive: false,
+  allowNegativeStock: false,
+  lowStockThreshold: 10,
+  maxDiscountPercent: 50,
+  loyaltyEnabled: true,
+  loyaltyEarnRate: 1,
+  loyaltyTiers: [
+    { name: "Bronze", min: 0 },
+    { name: "Silver", min: 100 },
+    { name: "Gold", min: 500 },
+  ],
 };
 
 export async function getSettingsCollection() {
@@ -448,13 +476,13 @@ export async function readSettings(): Promise<StoreSettings> {
   const settings = await getSettingsCollection();
   const existing = await settings.findOne({ _id: "settings" });
   if (existing) {
+    const { _id, ...rest } = existing;
+    // Docs written before a settings group existed fall back to the defaults.
     return {
-      name: existing.name,
-      location: existing.location,
-      receiptFooter: existing.receiptFooter,
-      currency: existing.currency,
-      // Docs written before payment methods existed fall back to the defaults.
-      paymentMethods: existing.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
+      ...DEFAULT_SETTINGS,
+      ...rest,
+      paymentMethods: rest.paymentMethods ?? DEFAULT_SETTINGS.paymentMethods,
+      loyaltyTiers: rest.loyaltyTiers ?? DEFAULT_SETTINGS.loyaltyTiers,
     };
   }
   const doc = { _id: "settings" as const, ...DEFAULT_SETTINGS };
@@ -573,7 +601,7 @@ export async function requireStaff(request: Request, minRole?: SystemRoleId): Pr
 }
 
 /** Reads the session token from the request's Cookie header, if present. */
-function readSessionToken(request: Request): string | null {
+export function readSessionToken(request: Request): string | null {
   const header = request.headers.get("cookie");
   if (!header) return null;
   for (const part of header.split(/;\s*/)) {
@@ -618,6 +646,13 @@ export async function readSession(request: Request): Promise<SessionProfile | nu
     status: doc.status,
     signedInAt: session.createdAt,
   };}
+
+/** Deletes every active session (Settings → Users & Security → force sign-out). Returns the count. */
+export async function signOutAllUsers(): Promise<number> {
+  const sessions = await getSessionsCollection();
+  const r = await sessions.deleteMany({});
+  return r.deletedCount;
+}
 
 /** Deletes the request's session (logout) if it has one. */
 export async function deleteSession(request: Request): Promise<void> {

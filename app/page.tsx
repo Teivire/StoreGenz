@@ -46,7 +46,7 @@ const CAPABILITY_GROUPS: { group: string; items: Capability[] }[] = [
   { group: "Finance", items: ["finance.manage", "register.operate"] },
   { group: "Management", items: ["departments.manage", "reports.view", "staff.manage", "settings.manage"] }
 ];
-type StoreSettings = { name: string; location: string; receiptFooter: string; currency: string; paymentMethods?: MethodSetting[] };
+type StoreSettings = { name: string; location: string; receiptFooter: string; currency: string; paymentMethods?: MethodSetting[]; taxEnabled?: boolean; taxRatePercent?: number; taxLabel?: string; taxInclusive?: boolean; allowNegativeStock?: boolean; lowStockThreshold?: number; maxDiscountPercent?: number; loyaltyEnabled?: boolean; loyaltyEarnRate?: number; loyaltyTiers?: { name: string; min: number }[]; registerOpeningFloat?: number; registerVarianceAlert?: number };
 const DEFAULT_SETTINGS: StoreSettings = { name: "StoreGenz", location: "Phnom Penh", receiptFooter: "", currency: "$" };
 /** Client-side capability check; the API re-enforces every rule server-side. Falls back to the legacy role ladder while roles load. */
 const CAPS_FALLBACK: Record<string, Capability[]> = {
@@ -74,7 +74,7 @@ const seedStaff: StaffMember[] = [
 
 type SaleLine = { name: string; sku: string; price: number; cost: number; qty: number };
 type SaleStatus = "Paid" | "Pending" | "Refunded";
-type Sale = { id: string; customer: string; date: string; payment: string; status: SaleStatus; discount?: number; lines: SaleLine[]; refundReason?: string; servedBy?: string; createdAt?: string; amountPaid?: number; changeDue?: number; saleTotal?: number };
+type Sale = { id: string; customer: string; date: string; payment: string; status: SaleStatus; discount?: number; lines: SaleLine[]; refundReason?: string; servedBy?: string; createdAt?: string; amountPaid?: number; changeDue?: number; saleTotal?: number; taxAmount?: number };
 /** What the payment form collects for one checkout. */
 type SalePayment = { customer: string; payment: string; amountPaid?: number; discount?: number };
 
@@ -113,6 +113,18 @@ const navGroups = [
 ] as const;
 
 const money = (n: number) => `${n < 0 ? "-" : ""}$${Math.abs(n).toFixed(2)}`;
+/** Low-stock threshold from Settings → Products & Inventory; updated when settings hydrate. */
+let LOW_STOCK_LIMIT = 10;
+/** Receipt tax label from Settings → Taxes (sale snapshots carry the amount). */
+let TAX_LABEL = "VAT";
+/** Loyalty tiers from Settings → Loyalty; updated when settings hydrate. */
+let LOYALTY_TIERS: { name: string; min: number }[] | null = null;
+const taxLabelOf = (_s: Sale) => TAX_LABEL || "Tax";
+/** Loyalty tier for a point balance, from Settings → Loyalty (highest min wins). */
+const loyaltyTier = (points: number, tiers?: { name: string; min: number }[]) => {
+  const list = (tiers ?? LOYALTY_TIERS ?? []).length ? (tiers ?? LOYALTY_TIERS)! : [{ name: "Member", min: 0 }, { name: "Silver", min: 100 }, { name: "Gold", min: 500 }];
+  return [...list].sort((a, b) => b.min - a.min).find(t => points >= t.min)?.name ?? list[0].name;
+};
 /* ================= Hub pages: Transactions / Products / Stock / Reports ================= */
 
 type PurchaseLite = { id: string; supplier: string; lines: { sku: string; name: string; qty: number; cost: number }[]; status: "Pending" | "Received" | "Returned"; note: string; createdBy: string; createdAt: string; receivedAt?: string; returnedAt?: string };
@@ -600,7 +612,7 @@ function CustomersHub({ role }: { role: StaffRole }) {
     </div>}
     {tab === "Loyalty / Points" && <div className="panel table-panel"><div className="toolbar"><strong>{customers ? `${totalPoints} points across ${customers.length} customers · 1 point per $1 of paid sales` : "Loading…"}</strong></div>
       {!customers ? <div className="empty">Loading…</div> : customers.length === 0 ? <div className="empty">No customers yet.</div>
-        : <DataTable headers={["CUSTOMER", "GROUP", "POINTS", "TIER"]} rows={[...customers].sort((a, b) => b.loyaltyPoints - a.loyaltyPoints).map(c => [c.name, c.group, String(c.loyaltyPoints), c.loyaltyPoints >= 500 ? "Gold" : c.loyaltyPoints >= 100 ? "Silver" : "Member"])}/>}
+        : <DataTable headers={["CUSTOMER", "GROUP", "POINTS", "TIER"]} rows={[...customers].sort((a, b) => b.loyaltyPoints - a.loyaltyPoints).map(c => [c.name, c.group, String(c.loyaltyPoints), loyaltyTier(c.loyaltyPoints)])}/>}
     </div>}
     {tab === "Customer Payments" && orphans.length > 0 && <p className="form-intro">Sales exist for customers not yet in the directory: {orphans.join(", ")} — add them to track credit and payments.</p>}
     {formOpen && <CustomerFormModal onClose={() => setFormOpen(false)} onSaved={msg => { setFormOpen(false); setNotice(msg); load(); }}/>}
@@ -1238,7 +1250,7 @@ function StockHub({ catalog, canManage, onAdjust, initialTab }: { catalog: Produ
     fetch("/api/movements?limit=200").then(r => r.ok ? r.json() : Promise.reject()).then(d => { if (alive) setMovements(d as typeof movements); }).catch(() => { if (alive) setMovements([]); });
     return () => { alive = false; };
   }, []);
-  const low = catalog.filter(p => p.stock > 0 && p.stock < 10);
+  const low = catalog.filter(p => p.stock > 0 && p.stock < LOW_STOCK_LIMIT);
   const out = catalog.filter(p => p.stock === 0);
   const stockStatus = (stock: number) => stock === 0 ? ["Out of stock", "refunded"] as const : stock < 10 ? ["Low stock", "pending"] as const : ["Healthy", "paid"] as const;
   const mv = (reason: string) => (movements ?? []).filter(m => m.reason === reason);
@@ -1316,9 +1328,9 @@ function ReportsHub({ sales, catalog, role }: { sales: Sale[]; catalog: Product[
       case "Sales by Category": return <HubTable headers={["CATEGORY", "ORDERS", "SALES"]} empty="No sales yet" rows={groupBy("category")}/>; 
       case "Sales by Customer": return <HubTable headers={["CUSTOMER", "ORDERS", "SALES"]} empty="No sales yet" rows={groupBy("customer")}/>; 
       case "Sales by Cashier": return <HubTable headers={["CASHIER", "ORDERS", "SALES"]} empty="No sales yet" rows={groupBy("servedBy")}/>; 
-      case "Stock Summary": return <HubTable headers={["PRODUCT", "SKU", "STOCK", "STATUS"]} empty="Catalog is empty" rows={catalog.map(p => [p.name, p.sku, `${p.stock} units`, p.stock === 0 ? "Out of stock" : p.stock < 10 ? "Low stock" : "Healthy"])}/> 
+      case "Stock Summary": return <HubTable headers={["PRODUCT", "SKU", "STOCK", "STATUS"]} empty="Catalog is empty" rows={catalog.map(p => [p.name, p.sku, `${p.stock} units`, p.stock === 0 ? "Out of stock" : p.stock < LOW_STOCK_LIMIT ? "Low stock" : "Healthy"])}/> 
       case "Stock Valuation": return <HubTable headers={["METRIC", "VALUE"]} empty="Catalog is empty" rows={[["Retail value", money(inventoryValue)], ["Cost value", money(inventoryCost)], ...(showMoney ? [["Potential margin", money(inventoryValue - inventoryCost)] as string[]] : [])]}/>; 
-      case "Low Stock": return <HubTable headers={["PRODUCT", "SKU", "STOCK"]} empty="No low stock" rows={catalog.filter(p => p.stock > 0 && p.stock < 10).map(p => [p.name, p.sku, `${p.stock} units`])}/>; 
+      case "Low Stock": return <HubTable headers={["PRODUCT", "SKU", "STOCK"]} empty="No low stock" rows={catalog.filter(p => p.stock > 0 && p.stock < LOW_STOCK_LIMIT).map(p => [p.name, p.sku, `${p.stock} units`])}/>; 
       case "Out of Stock": return <HubTable headers={["PRODUCT", "SKU", "STOCK"]} empty="Nothing out of stock" rows={catalog.filter(p => p.stock === 0).map(p => [p.name, p.sku, "0 units"])}/>; 
       case "Profit & Loss": { const expenseTotal = expenses.reduce((n, e) => n + e.amount, 0); return <HubTable headers={["LINE", "AMOUNT"]} empty="No data" rows={showMoney ? [["Revenue", money(revenue)], ["Cost of goods sold", money(-cost)], ["Gross profit", money(revenue - cost)], ["Refunds", money(-refundAmt)], ["Operating expenses", money(-expenseTotal)], ["Net", money(revenue - cost - refundAmt - expenseTotal)]] : [["Sign in as a manager", "—"]]} />; } 
       case "Refunds": return <HubTable headers={["INVOICE", "CUSTOMER", "DATE", "AMOUNT", "REASON"]} empty="No refunds yet" rows={refunded.map(s => [s.id, s.customer, s.date, money(saleTotal(s)), s.refundReason || "—"])}/>; 
@@ -1327,7 +1339,7 @@ function ReportsHub({ sales, catalog, role }: { sales: Sale[]; catalog: Product[
       case "Supplier Summary": return <HubTable headers={["SUPPLIER", "ORDERED", "PAID", "BALANCE"]} empty="No suppliers yet" rows={(supplierStatements ?? []).map(st => [st.name, money(st.ordered), money(st.paid), st.balance > 0 ? money(st.balance) : "Settled"])}/>;
       case "Supplier Balance": return <HubTable headers={["SUPPLIER", "BALANCE", "LAST ACTIVITY"]} empty="No suppliers yet" rows={(supplierStatements ?? []).filter(st => st.balance > 0).map(st => [st.name, money(st.balance), new Date(st.lastActivity).toLocaleDateString()])}/>;
       case "Supplier Payments": return <HubTable headers={["SUPPLIER", "ORDERED", "PAID", "BALANCE", "LAST ACTIVITY"]} empty="No suppliers yet" rows={(supplierStatements ?? []).map(st => [st.name, money(st.ordered), money(st.paid), st.balance > 0 ? money(st.balance) : "Settled", new Date(st.lastActivity).toLocaleDateString()])}/>; 
-      case "Loyalty Points": return <HubTable headers={["CUSTOMER", "POINTS", "TIER"]} empty="No customers yet" rows={[...(customerStatements ?? [])].sort((a, b) => b.loyaltyPoints - a.loyaltyPoints).map(c => [c.name, String(c.loyaltyPoints), c.loyaltyPoints >= 500 ? "Gold" : c.loyaltyPoints >= 100 ? "Silver" : "Member"])}/>; 
+      case "Loyalty Points": return <HubTable headers={["CUSTOMER", "POINTS", "TIER"]} empty="No customers yet" rows={[...(customerStatements ?? [])].sort((a, b) => b.loyaltyPoints - a.loyaltyPoints).map(c => [c.name, String(c.loyaltyPoints), loyaltyTier(c.loyaltyPoints)])}/>; 
       case "Register Summary": case "Shift Report": { const cash = counted.filter(s => s.payment === "Cash").reduce((n, s) => n + saleTotal(s), 0); return <HubTable headers={["ITEM", "AMOUNT"]} empty="No data" rows={[["Cash sales", money(cash)], ["Card / ABA sales", money(revenue - cash)], ["Refunds", money(refundAmt)], ["Expected drawer cash", money(cash - refundAmt)]]}/>; } 
       case "Staff Performance": case "Cashier Sales": return <HubTable headers={["CASHIER", "ORDERS", "SALES"]} empty="No sales yet" rows={groupBy("servedBy")}/>; 
       default: return <SoonPanel title={tab} what="This report needs a module that isn't built yet (purchases, suppliers, expenses, or the activity log) — no invented numbers are shown."/>; 
@@ -1454,6 +1466,9 @@ export default function Home() {
       if (sf) setStaff(sf as StaffMember[]);
       if (se) setSettings((prev: StoreSettings) => ({ ...prev, ...(se as StoreSettings) }));
       if (rl) setRoles(rl as RoleDef[]);
+      LOW_STOCK_LIMIT = (se as StoreSettings | null)?.lowStockThreshold ?? 10;
+      TAX_LABEL = (se as StoreSettings | null)?.taxLabel ?? "VAT";
+      LOYALTY_TIERS = (se as StoreSettings | null)?.loyaltyTiers ?? null;
       setDbOnline(true);
     } catch {
       if (mountedRef.current && gen === refreshGen.current) setDbOnline(false);
@@ -1655,7 +1670,7 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && query.trim()) { e.preventDefault(); const t = query.trim(); if (/^#?inv/i.test(t)) { setOrderSearch(t.replace(/^#/, "")); navigate("Transactions"); } else { navigate("Products"); setQuery(t); } } }} placeholder="Search products, orders..."/><kbd className="search-kbd">Ctrl K</kbd></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} methods={(settings.paymentMethods ?? []).filter(m => m.enabled).map(m => m.name)}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role, roles)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role, roles)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role, roles)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role, roles)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Payments" ? <PaymentsHub sales={sales} role={session.role}/> : active === "Expenses" ? <ExpensesHub role={session.role}/> : active === "Cash Register" ? <RegisterHub sales={sales} role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role, roles)} onSave={updateSettings}/> : active === "Staff" || active === "Roles & Permissions" || active === "Departments" ? <StaffHub key={active} staff={staff} sales={sales} role={session.role} currentUser={session.name} query={query} onQuery={setQuery} roles={roles} reloadRoles={reloadRoles} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} initialTab={active === "Roles & Permissions" ? "Roles & Permissions" : active === "Departments" ? "Departments" : undefined}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} methods={(settings.paymentMethods ?? []).filter(m => m.enabled).map(m => m.name)}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role, roles)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role, roles)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role, roles)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role, roles)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Payments" ? <PaymentsHub sales={sales} role={session.role}/> : active === "Expenses" ? <ExpensesHub role={session.role}/> : active === "Cash Register" ? <RegisterHub sales={sales} role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsHub key={active} settings={settings} sales={sales} role={session.role} roles={roles} canManage={can("settings.manage", session.role, roles)} onSave={updateSettings} onChanged={() => { void refreshAll(); }} navigate={navigate}/> : active === "Staff" || active === "Roles & Permissions" || active === "Departments" ? <StaffHub key={active} staff={staff} sales={sales} role={session.role} currentUser={session.name} query={query} onQuery={setQuery} roles={roles} reloadRoles={reloadRoles} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} initialTab={active === "Roles & Permissions" ? "Roles & Permissions" : active === "Departments" ? "Departments" : undefined}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }
@@ -1915,7 +1930,7 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
       </div>
       <div className="panel">
         <PanelHeader title="Low stock" sub="Products that need attention" action="View inventory" onAction={()=>navigate("Stock")}/>
-        {catalog.filter(p=>p.stock<10).length===0 ? <div className="empty">All products are well stocked.</div> : <div className="stock-list">{catalog.filter(p=>p.stock<10).sort((a,b)=>a.stock-b.stock).slice(0,4).map(p=>
+        {catalog.filter(p=>p.stock<LOW_STOCK_LIMIT).length===0 ? <div className="empty">All products are well stocked.</div> : <div className="stock-list">{catalog.filter(p=>p.stock<LOW_STOCK_LIMIT).sort((a,b)=>a.stock-b.stock).slice(0,4).map(p=>
           <div className="stock-item" key={p.sku}><div className="product-placeholder"><Package size={18}/></div><div className="stock-name"><strong>{p.name}</strong><span>{p.sku}</span></div><div className="stock-count"><strong className={p.stock===0?"critical":""}>{p.stock} units</strong><span className={`status ${p.stock===0?"refunded":"pending"}`}>{p.stock===0?"OUT OF STOCK":"LOW STOCK"}</span></div></div>)}</div>}
         <button className="outline-button" onClick={()=>navigate("Stock")}>View inventory <ArrowUpRight size={15}/></button>
       </div>
@@ -2012,7 +2027,7 @@ function Products({ catalog, query, onQuery, onUpsert, onDelete, onAdjust, canMa
     {rows.length===0 ? <div className="empty">{loadingPage ? "Loading…" : "No products match your filters."}</div> :
     <div className="table-wrap"><table><thead><tr>{["","PRODUCT","SKU","CATEGORY","PRICE","STOCK","STATUS",""].map((h,i)=><th key={i}>{h}</th>)}</tr></thead><tbody>{rows.map(p=><tr key={p.sku} className={loadingPage?"row-loading":""}>
       <td><div className="cell-media">{p.image?<img src={p.image} alt=""/>:<div className="product-placeholder"><Package size={16}/></div>}</div></td><td><strong>{p.name}</strong></td><td>{p.sku}</td><td>{p.category}</td><td>{money(p.price)}</td><td>{p.stock} units</td>
-      <td><span className={`status ${p.stock===0?"refunded":p.stock<10?"pending":"paid"}`}>{p.stock===0?"Out of stock":p.stock<10?"Low stock":"In stock"}</span></td>
+      <td><span className={`status ${p.stock===0?"refunded":p.stock<LOW_STOCK_LIMIT?"pending":"paid"}`}>{p.stock===0?"Out of stock":p.stock<LOW_STOCK_LIMIT?"Low stock":"In stock"}</span></td>
       <td><div className="row-actions">{canManage ? [<button key="e" className="text-button" onClick={()=>{setBanner(null);setEditing(p);}}>Edit</button>, <button key="d" className="text-button danger" onClick={()=>{setBanner(null);setDeleting(p);}}>Delete</button>] : <span className="you-chip">view only</span>}</div></td>
     </tr>)}</tbody></table></div>}
     {serverItems && serverMeta.pages > 1 && (<div className="pager"><button className="outline-button" disabled={page<=1} onClick={()=>goPage(page-1)}>‹ Prev</button><span>Page {page} of {serverMeta.pages} · {serverMeta.total} products</span><button className="outline-button" disabled={page>=serverMeta.pages} onClick={()=>goPage(page+1)}>Next ›</button></div>)}</div>}
@@ -2242,7 +2257,7 @@ function ReceiptModal({ sale, onClose, onRefund, storeName, storeLocation, recei
     return () => { document.body.classList.remove("print-receipt"); };
   }, []);
   const cur = (n: number) => `${currency}${n.toFixed(2)}`;
-  return <div className="modal-backdrop" onClick={onClose}><div className="modal receipt-modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>Receipt {sale.id}</h2><button aria-label="Close receipt" onClick={onClose}><X size={18}/></button></div><p className="receipt-store"><strong>{storeName}</strong>{storeLocation&&` · ${storeLocation}`}</p><p className="receipt-meta">{sale.customer} · {sale.date} · Paid by {sale.payment}{sale.servedBy ? ` · Served by ${sale.servedBy}` : ""}</p><div className="receipt-lines">{sale.lines.map(l=><div className="receipt-line" key={l.sku}><span>{l.name} <em>× {l.qty}</em></span><strong>{cur(l.price*l.qty)}</strong></div>)}</div>{(sale.discount??0)>0&&<div className="receipt-payline"><span>Discount</span><strong>-{cur(sale.discount as number).slice(1)}</strong></div>}<div className="receipt-total"><span>Total</span><strong>{cur(saleTotal(sale))}</strong></div>{sale.amountPaid!==undefined&&<div className="receipt-payline"><span>Paid by {sale.payment}</span><strong>{cur(sale.amountPaid)}</strong></div>}{sale.changeDue!==undefined&&sale.changeDue>0&&<div className="receipt-payline change"><span>Change due</span><strong>{cur(sale.changeDue)}</strong></div>}<p className="receipt-status">Status: <span className={`status ${statusClass(sale.status)}`}>{sale.status}</span>{sale.status==="Refunded"&&<em> · {sale.refundReason}</em>}</p>{receiptFooter&&<p className="receipt-footer">{receiptFooter}</p>}<div className="modal-actions"><button className="outline-button" onClick={()=>window.print()}><Printer size={15}/>Print</button><button className="outline-button" onClick={onClose}>Close</button>{sale.status!=="Refunded"&&<button className="primary-button" onClick={()=>onRefund(sale)}>Process refund</button>}</div></div></div>;
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal receipt-modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>Receipt {sale.id}</h2><button aria-label="Close receipt" onClick={onClose}><X size={18}/></button></div><p className="receipt-store"><strong>{storeName}</strong>{storeLocation&&` · ${storeLocation}`}</p><p className="receipt-meta">{sale.customer} · {sale.date} · Paid by {sale.payment}{sale.servedBy ? ` · Served by ${sale.servedBy}` : ""}</p><div className="receipt-lines">{sale.lines.map(l=><div className="receipt-line" key={l.sku}><span>{l.name} <em>× {l.qty}</em></span><strong>{cur(l.price*l.qty)}</strong></div>)}</div>{(sale.discount??0)>0&&<div className="receipt-payline"><span>Discount</span><strong>-{cur(sale.discount as number).slice(1)}</strong></div>}{!!sale.taxAmount&&<div className="receipt-payline"><span>{taxLabelOf(sale)}</span><strong>{cur(sale.taxAmount)}</strong></div>}<div className="receipt-total"><span>Total</span><strong>{cur(saleTotal(sale))}</strong></div>{sale.amountPaid!==undefined&&<div className="receipt-payline"><span>Paid by {sale.payment}</span><strong>{cur(sale.amountPaid)}</strong></div>}{sale.changeDue!==undefined&&sale.changeDue>0&&<div className="receipt-payline change"><span>Change due</span><strong>{cur(sale.changeDue)}</strong></div>}<p className="receipt-status">Status: <span className={`status ${statusClass(sale.status)}`}>{sale.status}</span>{sale.status==="Refunded"&&<em> · {sale.refundReason}</em>}</p>{receiptFooter&&<p className="receipt-footer">{receiptFooter}</p>}<div className="modal-actions"><button className="outline-button" onClick={()=>window.print()}><Printer size={15}/>Print</button><button className="outline-button" onClick={onClose}>Close</button>{sale.status!=="Refunded"&&<button className="primary-button" onClick={()=>onRefund(sale)}>Process refund</button>}</div></div></div>;
 }
 
 /** Staff hub: 8 views over the roster, roles, departments, attendance, and the audit trail. */
@@ -2587,6 +2602,300 @@ function Finance({ sales }: { sales: Sale[] }) {
   </>;
 }
 
+/** Settings hub: 17 views. Real views read/write the settings document and real APIs; speculative groups show documented policy instead of invented options. */
+function SettingsHub({ settings, sales, role, roles, canManage, onSave, onChanged, navigate }: {
+  settings: StoreSettings; sales: Sale[]; role: StaffRole; roles: RoleDef[]; canManage: boolean;
+  onSave: (s: StoreSettings, done?: (ok: boolean) => void) => void; onChanged: () => void; navigate: (t: string) => void;
+}) {
+  type View = "General" | "Store / Locations" | "Users & Security" | "POS & Sales" | "Products & Inventory" | "Purchases" | "Customers" | "Suppliers" | "Payments" | "Taxes" | "Discounts" | "Loyalty" | "Receipts & Printing" | "Notifications" | "Integrations" | "Backup & Data" | "Audit Log";
+  const views: View[] = ["General", "Store / Locations", "Users & Security", "POS & Sales", "Products & Inventory", "Purchases", "Customers", "Suppliers", "Payments", "Taxes", "Discounts", "Loyalty", "Receipts & Printing", "Notifications", "Integrations", "Backup & Data", "Audit Log"];
+  const [tab, setTab] = useState<View>("General");
+  return <>
+    <PageHeading title="Settings" sub="Configure your StoreGenz workspace"/>
+    <div className="subnav subnav-wrap">
+      {views.map(t => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t}</button>)}
+    </div>
+    {tab === "General" && <GeneralSettings settings={settings} canManage={canManage} onSave={onSave}/>}
+    {tab === "Store / Locations" && <StoreLocationsSettings/>}
+    {tab === "Users & Security" && <UsersSecuritySettings canManage={canManage} onChanged={onChanged}/>}
+    {tab === "POS & Sales" && <PosSalesSettings settings={settings} canManage={canManage} onSave={onSave}/>}
+    {tab === "Products & Inventory" && <InventorySettings settings={settings} canManage={canManage} onSave={onSave}/>}
+    {tab === "Purchases" && <PolicyNoteCard title="Purchases" note="Purchase orders always require Manager capabilities, snapshot the unit cost on receive, and prune to one open PO per receive — policies are enforced where the PO is created, not configured here."/>}
+    {tab === "Customers" && <PolicyNoteCard title="Customers" note="Customer names are unique and deletions are blocked while sales reference the customer; credit sales post as Pending and reduce the balance only when a payment is recorded."/>}
+    {tab === "Suppliers" && <PolicyNoteCard title="Suppliers" note="Supplier names are unique and deletions are blocked while purchase orders reference the supplier; statements derive from non-returned POs minus recorded payments."/>}
+    {tab === "Payments" && <PaymentMethodsSettings settings={settings} canManage={canManage} onChanged={onChanged}/>}
+    {tab === "Taxes" && <TaxSettings settings={settings} canManage={canManage} onSave={onSave}/>}
+    {tab === "Discounts" && <DiscountSettings settings={settings} canManage={canManage} onSave={onSave}/>}
+    {tab === "Loyalty" && <LoyaltySettings settings={settings} canManage={canManage} onSave={onSave}/>}
+    {tab === "Receipts & Printing" && <GeneralSettings settings={settings} canManage={canManage} onSave={onSave} receiptsOnly/>}
+    {tab === "Notifications" && <PolicyNoteCard title="Notifications" note="No notification service is wired up yet — nothing to configure. In-app alerts today: the register variance banner and the low-stock list on the dashboard."/>}
+    {tab === "Integrations" && <PolicyNoteCard title="Integrations" note="No third-party integrations are connected — no invented connections are shown. The POS talks to MongoDB and nothing else today."/>}
+    {tab === "Backup & Data" && <BackupDataSettings canManage={canManage}/>}
+    {tab === "Audit Log" && <div className="panel table-panel"><div className="toolbar"><strong>Full activity trail</strong><span className="you-chip">newest first</span></div><AuditTrailTable/></div>}
+  </>;
+}
+
+/** Shared policy note for groups whose rules live in the enforcing module. */
+function PolicyNoteCard({ title, note }: { title: string; note: string }) {
+  return <div className="panel empty-panel"><div className="empty"><strong>{title}</strong><p>{note}</p><span className="you-chip">enforced by the module itself — nothing to configure here</span></div></div>;
+}
+
+/** Real-time audit trail for Settings → Audit Log (manager capability gate). */
+function AuditTrailTable() {
+  const [rows, setRows] = useState<{ action: string; detail: string; by: string; createdAt: string }[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/activity?limit=200").then(r => r.ok ? r.json() : Promise.reject()).then(d => { if (alive) setRows(d as typeof rows); }).catch(() => { if (alive) setRows([]); });
+    return () => { alive = false; };
+  }, []);
+  if (!rows) return <div className="empty">Loading…</div>;
+  if (rows.length === 0) return <div className="empty">No activity recorded yet.</div>;
+  return <DataTable headers={["WHEN", "ACTION", "DETAIL", "BY"]} rows={rows.map(a => [new Date(a.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }), a.action, a.detail, a.by])}/>;
+}
+
+/** General (and Receipts & Printing): store profile + receipt footer. */
+function GeneralSettings({ settings, canManage, onSave, receiptsOnly }: { settings: StoreSettings; canManage: boolean; onSave: (s: StoreSettings, done?: (ok: boolean) => void) => void; receiptsOnly?: boolean }) {
+  const [form, setForm] = useState({ name: settings.name, location: settings.location, currency: settings.currency, receiptFooter: settings.receiptFooter });
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => setForm({ name: settings.name, location: settings.location, currency: settings.currency, receiptFooter: settings.receiptFooter }), [settings]);
+  const dirty = JSON.stringify(form) !== JSON.stringify({ name: settings.name, location: settings.location, currency: settings.currency, receiptFooter: settings.receiptFooter });
+  const set = (k: keyof typeof form) => (e: { target: { value: string } }) => { setForm({ ...form, [k]: e.target.value }); setError(null); setSaved(false); };
+  const save = () => {
+    const next = { ...settings, name: form.name.trim(), location: form.location.trim(), currency: form.currency.trim(), receiptFooter: form.receiptFooter.trim() };
+    if (!next.name) return setError("Store name is required.");
+    if (!next.currency) return setError("Currency symbol is required.");
+    onSave(next, ok => { if (ok) { setSaved(true); setError(null); } else setError("Could not save settings — check your connection and try again."); });
+  };
+  return <div className="panel stock-form"><div className="toolbar"><h2>{receiptsOnly ? "Receipts & printing" : "Store profile"}</h2>{!canManage&&<span className="you-chip">view only</span>}</div>
+    <p className="form-intro">{receiptsOnly ? "The footer prints at the bottom of every invoice. Printing uses the browser's print dialog — there is no printer driver to configure here." : "The store name and location appear in the sidebar and on the sign-in screen."}</p>
+    <div className="form-grid">
+      {!receiptsOnly && <label>Store name<input value={form.name} disabled={!canManage} onChange={set("name")}/></label>}
+      {!receiptsOnly && <label>Location<input value={form.location} disabled={!canManage} onChange={set("location")}/></label>}
+      {!receiptsOnly && <label>Currency symbol<input value={form.currency} maxLength={4} disabled={!canManage} onChange={set("currency")}/></label>}
+      <label>Receipt footer<input value={form.receiptFooter} placeholder="e.g. Thanks for shopping — see you soon!" disabled={!canManage} onChange={set("receiptFooter")}/></label>
+    </div>
+    {error&&<p className="field-error" role="alert">{error}</p>}
+    {saved&&<p className="form-intro" role="status">Settings saved.</p>}
+    {canManage&&<div className="modal-actions"><button className="primary-button" disabled={!dirty} onClick={save}>Save changes</button></div>}
+  </div>;
+}
+
+/** Store / Locations: single-store today, says so plainly (no invented stores). */
+function StoreLocationsSettings() {
+  return <div className="panel empty-panel"><div className="empty"><strong>Single store mode</strong><p>StoreGenz currently runs one location. Multi-store support (per-location stock, sales scoping, and store switching) is not built yet — no invented locations are shown.</p></div></div>;
+}
+
+/** Users & Security: live security posture + force sign-out of all sessions. */
+function UsersSecuritySettings({ canManage, onChanged }: { canManage: boolean; onChanged: () => void }) {
+  const [info, setInfo] = useState<{ authMode: string; sessionTtlDays: number; activeAccounts: number; inactiveAccounts: number; administrators: number; roles: Record<string, number> } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => {
+    fetch("/api/security", { credentials: "same-origin" }).then(r => r.ok ? r.json() : Promise.reject()).then(d => setInfo(d as NonNullable<typeof info>)).catch(() => setInfo(null));
+  }, []);
+  useEffect(load, [load]);
+  const signOutAll = async () => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      const res = await fetch("/api/security", { method: "POST", credentials: "same-origin" });
+      const d = await res.json() as { error?: string; signedOut?: number };
+      if (!res.ok) setError(d.error ?? "Could not sign users out.");
+      else { load(); onChanged(); }
+    } catch { setError("Could not reach the server."); }
+    finally { setBusy(false); }
+  };
+  return <>
+    <div className="panel table-panel"><div className="toolbar"><strong>Security posture</strong>{!canManage && <span className="you-chip">view only</span>}</div>
+      {!info ? <div className="empty">Loading…</div> : <DataTable headers={["SETTING", "VALUE"]} rows={[
+        ["Authentication", info.authMode],
+        ["Session lifetime", `${info.sessionTtlDays} days`],
+        ["Active accounts", String(info.activeAccounts)],
+        ["Inactive accounts", String(info.inactiveAccounts)],
+        ["Administrators", String(info.administrators)],
+        ...Object.entries(info.roles).map(([r, n]) => [`${r} members`, String(n)]),
+      ]}/>}
+    </div>
+    {canManage && <div className="panel purchase-form-panel"><div className="toolbar"><strong>Force sign-out</strong></div>
+      <p className="form-intro">Deletes every active session — all users are signed out on their next request. Your own session is kept.</p>
+      {error && <p className="field-error" role="alert">{error}</p>}
+      <div className="modal-actions"><button className="danger-button primary-button" disabled={busy} onClick={signOutAll}>Sign out all users</button></div>
+    </div>}
+  </>;
+}
+
+/** POS & Sales: oversell policy and discount cap note (discount cap lives in Discounts). */
+function PosSalesSettings({ settings, canManage, onSave }: { settings: StoreSettings; canManage: boolean; onSave: (s: StoreSettings, done?: (ok: boolean) => void) => void }) {
+  const allow = settings.allowNegativeStock ?? false;
+  return <div className="panel stock-form"><div className="toolbar"><h2>Checkout stock policy</h2>{!canManage&&<span className="you-chip">view only</span>}</div>
+    <p className="form-intro">When stock runs out mid-sale: <strong>{allow ? "allow the sale and let stock go negative" : "block the sale"}</strong>. Blocking is the safe default; allowing matches busy counters that sell before restocking.</p>
+    <div className="modal-actions"><button className={allow ? "outline-button" : "primary-button"} disabled={!canManage || !allow} onClick={() => onSave({ ...settings, allowNegativeStock: false })}>Block overselling</button>
+    <button className={allow ? "primary-button" : "outline-button"} disabled={!canManage || allow} onClick={() => onSave({ ...settings, allowNegativeStock: true })}>Allow negative stock</button></div>
+  </div>;
+}
+
+/** Products & Inventory: low-stock threshold. */
+function InventorySettings({ settings, canManage, onSave }: { settings: StoreSettings; canManage: boolean; onSave: (s: StoreSettings, done?: (ok: boolean) => void) => void }) {
+  const [threshold, setThreshold] = useState(String(settings.lowStockThreshold ?? 10));
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => setThreshold(String(settings.lowStockThreshold ?? 10)), [settings]);
+  const save = () => {
+    const t = Number(threshold);
+    if (!Number.isInteger(t) || t < 0 || t > 9999) return setError("Threshold must be a whole number between 0 and 9999.");
+    onSave({ ...settings, lowStockThreshold: t }, ok => { if (ok) setError(null); else setError("Could not save — try again."); });
+  };
+  return <div className="panel stock-form"><div className="toolbar"><h2>Low-stock threshold</h2>{!canManage&&<span className="you-chip">view only</span>}</div>
+    <p className="form-intro">Products at or below this stock count are flagged on the dashboard and in the Stock hub.</p>
+    <div className="form-grid"><label>Flag products when stock is under<input type="number" min="0" max="9999" value={threshold} disabled={!canManage} onChange={e => { setThreshold(e.target.value); setError(null); }}/></label></div>
+    {error&&<p className="field-error" role="alert">{error}</p>}
+    {canManage&&<div className="modal-actions"><button className="primary-button" disabled={!threshold && threshold !== "0"} onClick={save}>Save threshold</button></div>}
+  </div>;
+}
+
+/** Payment methods editor (same admin PATCH that powers the POS charge dialog). */
+function PaymentMethodsSettings({ settings, canManage, onChanged }: { settings: StoreSettings; canManage: boolean; onChanged: () => void }) {
+  const [methods, setMethods] = useState<MethodSetting[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setMethods(settings.paymentMethods ?? []), [settings]);
+  const save = async (next: MethodSetting[]) => {
+    setBusy(true); setError(null);
+    try {
+      const res = await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ paymentMethods: next }) });
+      const d = await res.json() as { error?: string };
+      if (!res.ok) setError(d.error ?? "Could not save payment methods.");
+      else onChanged();
+    } catch { setError("Could not reach the server."); }
+    finally { setBusy(false); }
+  };
+  const toggle = (m: MethodSetting) => {
+    if (!methods) return;
+    const next = methods.map(x => x.name === m.name ? { ...x, enabled: !x.enabled } : x);
+    if (!next.some(x => x.enabled)) return setError("At least one method must stay enabled.");
+    setMethods(next); save(next);
+  };
+  return <div className="panel table-panel"><div className="toolbar"><strong>Accepted payment methods</strong><span className="you-chip">the POS charge dialog reads this list live</span></div>
+    {!methods ? <div className="empty">Loading…</div> : <div className="table-wrap"><table><thead><tr>{["METHOD", "ENABLED", ""].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+      {methods.map(m => <tr key={m.name}><td><strong>{m.name}</strong></td><td><span className={`status ${m.enabled ? "paid" : "refunded"}`}>{m.enabled ? "enabled" : "disabled"}</span></td>
+        <td>{canManage && <button className="text-button" disabled={busy} onClick={() => toggle(m)}>{m.enabled ? "Disable" : "Enable"}</button>}</td></tr>)}
+    </tbody></table></div>}
+    {error && <p className="field-error" role="alert">{error}</p>}
+  </div>;
+}
+
+/** Taxes: enable, rate, label, and exclusive/inclusive mode. */
+function TaxSettings({ settings, canManage, onSave }: { settings: StoreSettings; canManage: boolean; onSave: (s: StoreSettings, done?: (ok: boolean) => void) => void }) {
+  const [form, setForm] = useState({ enabled: settings.taxEnabled ?? false, rate: String(settings.taxRatePercent ?? 0), label: settings.taxLabel ?? "VAT", inclusive: settings.taxInclusive ?? false });
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => setForm({ enabled: settings.taxEnabled ?? false, rate: String(settings.taxRatePercent ?? 0), label: settings.taxLabel ?? "VAT", inclusive: settings.taxInclusive ?? false }), [settings]);
+  const save = () => {
+    const rate = Number(form.rate);
+    if (!Number.isFinite(rate) || rate < 0 || rate > 100) return setError("Tax rate must be between 0 and 100.");
+    if (form.enabled && rate <= 0) return setError("Enter a non-zero rate, or disable tax.");
+    onSave({ ...settings, taxEnabled: form.enabled, taxRatePercent: Math.round(rate * 100) / 100, taxLabel: form.label.trim() || "VAT", taxInclusive: form.inclusive }, ok => { if (ok) { setSaved(true); setError(null); } else setError("Could not save — try again."); });
+  };
+  const set = (k: keyof typeof form, v: string | boolean) => { setForm({ ...form, [k]: v }); setError(null); setSaved(false); };
+  return <div className="panel stock-form"><div className="toolbar"><h2>Tax</h2>{!canManage&&<span className="you-chip">view only</span>}</div>
+    <p className="form-intro">Exclusive adds the tax on top at checkout; inclusive treats the shelf price as already containing tax and divides it out for reporting.</p>
+    <div className="form-grid">
+      <label>Tax enabled<input type="checkbox" checked={form.enabled} disabled={!canManage} onChange={e => set("enabled", e.target.checked)}/></label>
+      <label>Rate (%)<input type="number" min="0" max="100" step="0.01" value={form.rate} disabled={!canManage} onChange={e => set("rate", e.target.value)}/></label>
+      <label>Label (receipts)<input value={form.label} maxLength={12} disabled={!canManage} onChange={e => set("label", e.target.value)}/></label>
+      <label>Prices include tax<input type="checkbox" checked={form.inclusive} disabled={!canManage} onChange={e => set("inclusive", e.target.checked)}/></label>
+    </div>
+    {error&&<p className="field-error" role="alert">{error}</p>}
+    {saved&&<p className="form-intro" role="status">Tax settings saved — new sales use them immediately.</p>}
+    {canManage&&<div className="modal-actions"><button className="primary-button" onClick={save}>Save tax settings</button></div>}
+  </div>;
+}
+
+/** Discounts: store-wide cap enforced by POST /api/sales. */
+function DiscountSettings({ settings, canManage, onSave }: { settings: StoreSettings; canManage: boolean; onSave: (s: StoreSettings, done?: (ok: boolean) => void) => void }) {
+  const [cap, setCap] = useState(String(settings.maxDiscountPercent ?? 50));
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => setCap(String(settings.maxDiscountPercent ?? 50)), [settings]);
+  const save = () => {
+    const c = Number(cap);
+    if (!Number.isFinite(c) || c < 0 || c > 100) return setError("Cap must be between 0 and 100.");
+    onSave({ ...settings, maxDiscountPercent: Math.round(c * 100) / 100 }, ok => { if (ok) { setSaved(true); setError(null); } else setError("Could not save — try again."); });
+  };
+  return <div className="panel stock-form"><div className="toolbar"><h2>Discount cap</h2>{!canManage&&<span className="you-chip">view only</span>}</div>
+    <p className="form-intro">A percentage discount larger than this share of the subtotal is rejected by the server — the cap applies to every checkout regardless of who is signed in.</p>
+    <div className="form-grid"><label>Maximum discount (% of subtotal)<input type="number" min="0" max="100" step="0.5" value={cap} disabled={!canManage} onChange={e => { setCap(e.target.value); setError(null); setSaved(false); }}/></label></div>
+    {error&&<p className="field-error" role="alert">{error}</p>}
+    {saved&&<p className="form-intro" role="status">Cap saved.</p>}
+    {canManage&&<div className="modal-actions"><button className="primary-button" onClick={save}>Save cap</button></div>}
+  </div>;
+}
+
+/** Loyalty: enable, earn rate, and tier ladder. */
+function LoyaltySettings({ settings, canManage, onSave }: { settings: StoreSettings; canManage: boolean; onSave: (s: StoreSettings, done?: (ok: boolean) => void) => void }) {
+  const tiers = settings.loyaltyTiers ?? [{ name: "Bronze", min: 0 }];
+  return <>
+    <div className="panel stock-form"><div className="toolbar"><h2>Earning</h2>{!canManage&&<span className="you-chip">view only</span>}</div>
+      <p className="form-intro">Points accrue on Paid sales to a known customer at <strong>{settings.loyaltyEarnRate ?? 1} point(s) per {settings.currency ?? "$"}1</strong>. {settings.loyaltyEnabled === false ? "Earning is currently disabled." : "Earning is active."}</p>
+      <div className="modal-actions">
+        <button className={settings.loyaltyEnabled === false ? "primary-button" : "outline-button"} disabled={!canManage} onClick={() => onSave({ ...settings, loyaltyEnabled: false })}>Disable earning</button>
+        <button className={settings.loyaltyEnabled === false ? "outline-button" : "primary-button"} disabled={!canManage} onClick={() => onSave({ ...settings, loyaltyEnabled: true })}>Enable earning</button>
+        <button className="outline-button" disabled={!canManage} onClick={() => { const v = window.prompt("Points earned per 1.00 spent", String(settings.loyaltyEarnRate ?? 1)); if (v === null) return; const n = Number(v); if (!Number.isFinite(n) || n < 0 || n > 1000) return; onSave({ ...settings, loyaltyEarnRate: Math.round(n * 100) / 100 }); }}>Set earn rate…</button>
+      </div>
+    </div>
+    <div className="panel table-panel"><div className="toolbar"><strong>Tiers</strong><span className="you-chip">members reach a tier when their balance crosses its minimum</span></div>
+      <DataTable headers={["TIER", "STARTS AT"]} rows={tiers.map(t => [t.name, `${t.min} points`])}/>
+    </div>
+  </>;
+}
+
+/** Backup & Data: list, create, and (with typing a confirmation) restore from the newest backup. */
+function BackupDataSettings({ canManage }: { canManage: boolean }) {
+  const [list, setList] = useState<{ file: string; createdAt: string; sizeBytes: number }[] | null>(null);
+  const [confirmText, setConfirmText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const load = useCallback(() => {
+    fetch("/api/backups", { credentials: "same-origin" }).then(r => r.ok ? r.json() : Promise.reject()).then(d => setList((d as { backups?: typeof list }).backups ?? [])).catch(() => setList([]));
+  }, []);
+  useEffect(load, [load]);
+  const create = async () => {
+    setBusy(true); setError(null); setNote(null);
+    try {
+      const res = await fetch("/api/backups", { method: "POST", credentials: "same-origin" });
+      const d = await res.json() as { error?: string; file?: string };
+      if (!res.ok) setError(d.error ?? "Backup failed.");
+      else { setNote(`Backup created: ${d.file}`); load(); }
+    } catch { setError("Could not reach the server."); }
+    finally { setBusy(false); }
+  };
+  const restore = async () => {
+    setBusy(true); setError(null); setNote(null);
+    try {
+      const res = await fetch("/api/backups", { method: "PUT", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ confirm: confirmText }) });
+      const d = await res.json() as { error?: string; restoredFrom?: string };
+      if (!res.ok) setError(d.error ?? "Restore failed.");
+      else { setNote(`Restored from ${d.restoredFrom}`); setConfirmText(""); load(); }
+    } catch { setError("Could not reach the server."); }
+    finally { setBusy(false); }
+  };
+  return <>
+    <div className="panel table-panel"><div className="toolbar"><strong>Backups</strong><span className="you-chip">auto: daily boot-time check + Windows task at 02:00</span>
+      {canManage && <button className="text-button" disabled={busy} onClick={create}><Plus size={13}/> Back up now</button>}</div>
+      {!list ? <div className="empty">Loading…</div> : list.length === 0 ? <div className="empty">No backup files yet — create one now or wait for the scheduled backup.</div>
+        : <DataTable headers={["FILE", "CREATED", "SIZE"]} rows={list.map(b => [b.file, new Date(b.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }), `${Math.round(b.sizeBytes / 1024)} KB`])}/>}
+    </div>
+    {canManage && <div className="panel purchase-form-panel"><div className="toolbar"><strong>Restore from newest backup</strong></div>
+      <p className="form-intro">Overwrites the live database with the newest file in backups/. Type <strong>RESTORE</strong> to confirm.</p>
+      <div className="form-grid"><label>Confirmation<input value={confirmText} placeholder="RESTORE" onChange={e => { setConfirmText(e.target.value); setError(null); }}/></label></div>
+      {error && <p className="field-error" role="alert">{error}</p>}
+      {note && <p className="form-intro" role="status">{note}</p>}
+      <div className="modal-actions"><button className="danger-button primary-button" disabled={busy || confirmText !== "RESTORE"} onClick={restore}>Restore now</button></div>
+    </div>}
+  </>;
+}
+
 function SettingsPage({ settings, canManage, onSave }: { settings: StoreSettings; canManage: boolean; onSave: (s: StoreSettings, done?: (ok: boolean) => void) => void }) {
   const [form, setForm] = useState<StoreSettings>(settings);
   const [error, setError] = useState<string | null>(null);
@@ -2619,7 +2928,7 @@ function SettingsPage({ settings, canManage, onSave }: { settings: StoreSettings
 }
 
 function GenericPage({ active, info, query, catalog }: { active: string; info?: {title:string;subtitle:string}; query:string; catalog: Product[] }) {
-  const inventoryRows: string[][] = catalog.map(p=>[p.name,p.sku,p.category,String(p.stock),p.stock===0?"Out of stock":p.stock<10?"Low stock":"In stock"]);
+  const inventoryRows: string[][] = catalog.map(p=>[p.name,p.sku,p.category,String(p.stock),p.stock===0?"Out of stock":p.stock<LOW_STOCK_LIMIT?"Low stock":"In stock"]);
   const data: Record<string,string[][]> = { Purchases:[["PO-2048","Fresh Foods Co.","Today","$1,240.00","Received"],["PO-2047","Mega Distribution","Yesterday","$860.00","Pending"]], Inventory:inventoryRows, Customers:[["Sokha Trading","sokha@example.com","12 orders","$2,840.00","Active"],["Dara Market","dara@example.com","8 orders","$1,420.50","Active"]], Suppliers:[["Fresh Foods Co.","+855 12 555 019","Groceries","Active"],["Mega Distribution","+855 11 302 904","General","Active"]], Finance:[["Sales revenue","Today","Income","$4,286.50","Completed"],["Store rent","Sep 20","Expense","-$650.00","Paid"]]}; const rows=data[active]||[["Store profile","Main Store","Phnom Penh","Open"],["Tax settings","VAT 10%","Default","Configured"]]; return <><PageHeading title={info?.title||active} sub={info?.subtitle||""}/><div className="panel table-panel"><div className="toolbar"><strong>{query ? `Results for “${query}”` : "Overview"}</strong><div className="filter"><Search size={15}/><input placeholder={`Search ${active.toLowerCase()}`}/></div><button className="select-button">Filter <ChevronDown size={14}/></button></div><DataTable headers={["NAME","DETAIL","TYPE","AMOUNT","STATUS"]} rows={rows}/></div><div className="quick-grid"><div className="panel mini-card"><Tag size={18}/><strong>Quick actions</strong><span>Export data · Print report · Manage permissions</span></div><div className="panel mini-card"><Building2 size={18}/><strong>Need a hand?</strong><span>Visit our documentation for setup guides.</span></div></div></>;
 }
 

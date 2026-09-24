@@ -45,7 +45,9 @@ const validators = {
         category: { bsonType: "string", minLength: 1 },
         price: { bsonType: "number", minimum: 0 },
         cost: { bsonType: "number", minimum: 0 },
-        stock: { bsonType: "number", minimum: 0 },
+        // allowNegativeStock (Settings → POS & Sales) can drive stock below zero on
+        // purpose, so the validator permits negatives and the policy lives in code.
+        stock: { bsonType: "number" },
         image: { bsonType: ["string", "null"] }
       }
     }
@@ -110,6 +112,25 @@ const validators = {
         location: { bsonType: "string", maxLength: 80 },
         receiptFooter: { bsonType: "string", maxLength: 120 },
         currency: { bsonType: "string", minLength: 1, maxLength: 4 },
+        // Optional policy groups (RBAC-era settings hub). Present fields are typed;
+        // absent fields fall back to DEFAULT_SETTINGS in lib/db.ts.
+        taxEnabled: { bsonType: "bool" },
+        taxRatePercent: { bsonType: "number", minimum: 0, maximum: 100 },
+        taxLabel: { bsonType: "string", maxLength: 12 },
+        taxInclusive: { bsonType: "bool" },
+        allowNegativeStock: { bsonType: "bool" },
+        lowStockThreshold: { bsonType: "int", minimum: 0, maximum: 9999 },
+        maxDiscountPercent: { bsonType: "number", minimum: 0, maximum: 100 },
+        loyaltyEnabled: { bsonType: "bool" },
+        loyaltyEarnRate: { bsonType: "number", minimum: 0, maximum: 1000 },
+        loyaltyTiers: {
+          bsonType: "array",
+          minItems: 1,
+          items: { bsonType: "object", required: ["name", "min"], properties: {
+            name: { bsonType: "string", minLength: 1, maxLength: 30 },
+            min: { bsonType: "int", minimum: 0 }
+          } }
+        },
         paymentMethods: {
           bsonType: "array",
           minItems: 1,

@@ -2,7 +2,7 @@ node_modules
 .next
 dev-server.log
 .env*.local
-backups/
+/backups/
 .freebuff/preview-*.log*
 .freebuff/project-id
 .agents/

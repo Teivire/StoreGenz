@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireCapability, logActivity } from "@/lib/db";
+import { requireCapability, logActivity, readSettings, getCustomersCollection, getSessionsCollection } from "@/lib/db";
 import { backfillCreatedAt, ensureSeeded, getMovementsCollection, getProductsCollection, getSalesCollection, normalizeLegacySales, type Sale, type SaleLine, type SaleStatus } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
@@ -112,29 +112,49 @@ export async function POST(request: Request) {
     // Everything money-related is derived from the same resolved prices — the client's
     // arithmetic is never trusted. Cash handling applies to Cash only: card/credit
     // tenders are always exact.
+    const config = await readSettings();
     const subtotal = sale.lines.reduce((sum, l) => sum + l.price * l.qty, 0);
     let discount = body.discount === undefined ? 0 : Math.round(Number(body.discount) * 100) / 100;
     if (!Number.isFinite(discount) || discount < 0) return bad("Discount must be zero or more.");
     if (discount > subtotal) discount = subtotal; // clamp at subtotal
+    // Settings → Discounts: policy cap as % of the subtotal.
+    const maxPct = Math.max(0, Math.min(100, config.maxDiscountPercent ?? 50));
+    const maxDiscount = Math.round(subtotal * (maxPct / 100) * 100) / 100;
+    if (discount > maxDiscount) return bad(`Discount exceeds the store cap (${maxPct}% of subtotal = ${maxDiscount.toFixed(2)}).`);
     if (discount > 0 && subtotal - discount < 0.01) return bad(`Minimum charge is 0.01 after discount (subtotal ${subtotal.toFixed(2)}).`);
     sale.discount = discount;
-    const saleTotal = sale.saleTotal = Math.round((subtotal - discount) * 100) / 100;
 
-    if (payment === "Cash" && amountPaid !== undefined && amountPaid + 0.005 < saleTotal) return bad(`Amount paid is less than the total (${saleTotal.toFixed(2)}).`);
+    // Settings → Taxes: exclusive adds on top; inclusive divides out of the total so
+    // the shelf price already contains the tax. The amount is snapshotted per sale.
+    let saleTotal = Math.round((subtotal - discount) * 100) / 100;
+    let taxAmount = 0;
+    if (config.taxEnabled && (config.taxRatePercent ?? 0) > 0) {
+      const rate = (config.taxRatePercent ?? 0) / 100;
+      taxAmount = config.taxInclusive
+        ? Math.round(saleTotal * (rate / (1 + rate)) * 100) / 100
+        : Math.round(saleTotal * rate * 100) / 100;
+      if (!config.taxInclusive) saleTotal = Math.round((saleTotal + taxAmount) * 100) / 100;
+    }
+    sale.taxAmount = taxAmount;
+    const finalTotal = sale.saleTotal = saleTotal;
+
+    if (payment === "Cash" && amountPaid !== undefined && amountPaid + 0.005 < finalTotal) return bad(`Amount paid is less than the total (${finalTotal.toFixed(2)}).`);
     if (payment !== "Cash" && amountPaid !== undefined) return bad("Amount paid only applies to Cash payments.");
     if (amountPaid !== undefined) {
       sale.amountPaid = Math.round(amountPaid * 100) / 100;
-      sale.changeDue = Math.max(0, Math.round((amountPaid - saleTotal) * 100) / 100);
+      sale.changeDue = Math.max(0, Math.round((amountPaid - finalTotal) * 100) / 100);
     }
 
+    // Settings → POS & Sales: allowNegativeStock decides whether a line without
+    // enough stock blocks the whole sale or is sold down below zero.
     const decrements = sale.lines.map(l => ({
       updateOne: {
-        filter: { _id: l.sku, stock: { $gte: l.qty } },
+        filter: config.allowNegativeStock ? { _id: l.sku } : { _id: l.sku, stock: { $gte: l.qty } },
         update: { $inc: { stock: -l.qty } }
       }
     }));
     const result = await products.bulkWrite(decrements, { ordered: true });
-    if (result.modifiedCount !== sale.lines.length) {
+    if (result.modifiedCount !== sale.lines.length && !config.allowNegativeStock) {
       // ordered bulkWrite stops at the first op that didn't match (insufficient stock).
       // Exactly `modifiedCount` lines were decremented before the failure — revert
       // only those so the operation is all-or-nothing and inventory stays consistent.
@@ -162,6 +182,18 @@ export async function POST(request: Request) {
           by: sale.servedBy ?? "system", refId: sale.id,
           createdAt: new Date().toISOString(),
         })))).catch(() => {});
+        // Settings → Loyalty: whole points per currency unit on Paid sales to a
+        // known customer. Best-effort — loyalty must never block a checkout.
+        if (config.loyaltyEnabled !== false && sale.status === "Paid" && (config.loyaltyEarnRate ?? 1) > 0 && sale.customer) {
+          const earned = Math.floor((sale.saleTotal ?? 0) * (config.loyaltyEarnRate ?? 1));
+          if (earned > 0) {
+            getCustomersCollection().then(async c => {
+              const r = await c.updateOne({ _id: sale.customer }, { $inc: { loyaltyPoints: earned } });
+              if (r.matchedCount === 0)
+                await c.updateOne({ name: sale.customer }, { $inc: { loyaltyPoints: earned } });
+            }).catch(() => {});
+          }
+        }
         void logActivity("sale.create", `${sale.id} — ${sale.payment} sale to ${sale.customer}, $${(sale.saleTotal ?? 0).toFixed(2)}`, sale.servedBy ?? "system");
         return NextResponse.json(sale, { status: 201 });
       } catch (e) {

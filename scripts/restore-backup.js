@@ -12,13 +12,15 @@ const { MongoClient } = require("mongodb");
 
 const file = process.argv[2];
 const yes = process.argv.includes("--yes");
-if (!file || !fs.existsSync(file)) {
-  console.error("Usage: node scripts/restore-backup.js <backup-file.json> --yes");
-  process.exit(1);
-}
-if (!yes) {
-  console.error("Refusing to overwrite the live database without --yes.");
-  process.exit(1);
+if (require.main === module) {
+  if (!file || !fs.existsSync(file)) {
+    console.error("Usage: node scripts/restore-backup.js <backup-file.json> --yes");
+    process.exit(1);
+  }
+  if (!yes) {
+    console.error("Refusing to overwrite the live database without --yes.");
+    process.exit(1);
+  }
 }
 
 function resolveUri() {
@@ -33,7 +35,17 @@ function resolveUri() {
   return "mongodb://127.0.0.1:27017/storegenz";
 }
 
-(async () => {
+/**
+ * Restores the given backup JSON file into MongoDB. Exported so the Settings →
+ * Backup & Data API can reuse the exact same logic as the CLI (RESTORE_DB lets
+ * tooling restore into a scratch database for round-trip tests).
+ * @param {string} backupFile path to the backup JSON
+ * @param {{ yes?: boolean }} opts `yes: true` confirms the destructive overwrite
+ */
+async function restoreBackup(backupFile, { yes = false } = {}) {
+  const file = backupFile;
+  if (!file || !fs.existsSync(file)) throw new Error(`Backup file not found: ${file}`);
+  if (!yes) throw new Error("Refusing to overwrite the live database without confirmation.");
   const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
   // RESTORE_DB lets tooling restore into a scratch database (round-trip tests) instead of the live one.
   const dbName = process.env.RESTORE_DB ?? parsed.database ?? "storegenz";
@@ -59,4 +71,11 @@ function resolveUri() {
   }
   await client.close();
   console.log(`restore complete from ${path.basename(file)} into "${dbName}"`);
-})().catch(e => { console.error("restore failed:", e.message); process.exit(1); });
+  return { database: dbName, collections: Object.keys(collections).length };
+}
+
+module.exports = { restoreBackup };
+
+if (require.main === module) {
+  restoreBackup(file, { yes }).catch(e => { console.error("restore failed:", e.message); process.exit(1); });
+}
