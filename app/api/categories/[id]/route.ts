@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensureSeeded, getCategoriesCollection, getProductsCollection, requireStaff, type Category } from "@/lib/db";
+import { requireCapability, ensureSeeded, getCategoriesCollection, getProductsCollection,  type Category } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -12,7 +12,7 @@ const bad = (message: string, status = 400) => NextResponse.json({ error: messag
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
     await ensureSeeded();
-    const by = await requireStaff(request, "Manager");
+    const by = await requireCapability(request, "inventory.manage");
     const id = decodeURIComponent(params.id);
     const cats = await getCategoriesCollection();
     const existing = await cats.findOne({ _id: id as string });
@@ -83,7 +83,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
     await ensureSeeded();
-    await requireStaff(request, "Manager");
+    await requireCapability(request, "inventory.manage");
     const id = decodeURIComponent(params.id);
     const cats = await getCategoriesCollection();
     const existing = await cats.findOne({ _id: id as string });

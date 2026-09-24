@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { ensureSeeded, getCustomersCollection, getSalesCollection, requireStaff } from "@/lib/db";
+import { requireCapability, ensureSeeded, getCustomersCollection, getSalesCollection, requireStaff } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
 /** Update a customer (managers+). Name must stay unique. */
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    await requireStaff(request, "Manager");
+    await requireCapability(request, "customers.manage");
     await ensureSeeded();
     const id = decodeURIComponent(params.id);
     const body = await request.json() as Record<string, unknown>;
@@ -43,7 +43,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 /** Delete a customer (managers+). Blocked while sales history references the name. */
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
-    await requireStaff(request, "Manager");
+    await requireCapability(request, "customers.manage");
     await ensureSeeded();
     const id = decodeURIComponent(params.id);
     const customers = await getCustomersCollection();

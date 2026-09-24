@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  ensureSeeded, requireStaff, getProductsCollection, getMovementsCollection,
+import { requireCapability,
+  ensureSeeded,  getProductsCollection, getMovementsCollection,
   getTransfersCollection, type StoredProduct,
 } from "@/lib/db";
 
@@ -25,7 +25,7 @@ export async function GET(request: Request) {
  */
 export async function POST(request: Request) {
   try {
-    const by = await requireStaff(request, "Manager");
+    const by = await requireCapability(request, "inventory.manage");
     await ensureSeeded();
     const body = await request.json() as Record<string, unknown>;
     const sku = String(body.sku ?? "").trim().toUpperCase();

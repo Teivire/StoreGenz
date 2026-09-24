@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensureSeeded, getSettingsCollection, readSettings, requireStaff } from "@/lib/db";
+import { requireCapability, ensureSeeded, getSettingsCollection, readSettings, requireStaff } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -11,7 +11,7 @@ const bad = (message: string, status = 400) => NextResponse.json({ error: messag
 export async function GET(request: Request) {
   try {
     await ensureSeeded();
-    await requireStaff(request, "Cashier");
+    await requireStaff(request);
     const s = await readSettings();
     return NextResponse.json(s);
   } catch (e) {
@@ -28,7 +28,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     await ensureSeeded();
-    await requireStaff(request, "Administrator");
+    await requireCapability(request, "settings.manage");
     const body = (await request.json()) as { paymentMethods?: unknown };
     const raw = Array.isArray(body.paymentMethods) ? body.paymentMethods : null;
     if (!raw) return bad("paymentMethods must be an array.");
@@ -79,7 +79,7 @@ export async function PATCH(request: Request) {
 export async function PUT(request: Request) {
   try {
     await ensureSeeded();
-    await requireStaff(request, "Administrator");
+    await requireCapability(request, "settings.manage");
     const body = (await request.json()) as Partial<{ name: string; location: string; receiptFooter: string; currency: string }>;
     const name = String(body.name ?? "").trim();
     const location = String(body.location ?? "").trim();

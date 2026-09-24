@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireStaff, ensureSeeded, getMovementsCollection, getProductsCollection, getSalesCollection, logActivity } from "@/lib/db";
+import { requireCapability,  ensureSeeded, getMovementsCollection, getProductsCollection, getSalesCollection, logActivity } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -7,7 +7,7 @@ const bad = (message: string, status = 400) => NextResponse.json({ error: messag
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
     await ensureSeeded();
-    await requireStaff(request, "Cashier");
+    await requireCapability(request, "sell");
     const id = decodeURIComponent(params.id);
     const body = await request.json().catch(() => ({})) as { reason?: string };
     const sales = await getSalesCollection();
@@ -39,7 +39,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       })))).catch(() => {});
     }
 
-    void logActivity("sale.refund", `${existing.id} refunded — ${reason || "no reason given"}`, await requireStaff(request, "Cashier").catch(() => "system"));
+    void logActivity("sale.refund", `${existing.id} refunded — ${reason || "no reason given"}`, await requireCapability(request, "sell").catch(() => "system"));
     return NextResponse.json({ ok: true });
   } catch (e) {
     const status = (e as { status?: number }).status;

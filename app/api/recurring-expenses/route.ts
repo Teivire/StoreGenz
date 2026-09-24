@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensureSeeded, requireStaff, getRecurringExpensesCollection, runDueRecurringExpenses } from "@/lib/db";
+import { requireCapability, ensureSeeded,  getRecurringExpensesCollection, runDueRecurringExpenses } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -16,7 +16,7 @@ export async function GET() {
 /** Create a recurring expense template (managers+). First generation is due at nextRun. */
 export async function POST(request: Request) {
   try {
-    const by = await requireStaff(request, "Manager");
+    const by = await requireCapability(request, "finance.manage");
     await ensureSeeded();
     const body = await request.json() as Record<string, unknown>;
     const category = String(body.category ?? "").trim();
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
 /** Pause/resume or delete a template (managers+): { id, action: "pause" | "resume" | "delete" }. */
 export async function PATCH(request: Request) {
   try {
-    await requireStaff(request, "Manager");
+    await requireCapability(request, "finance.manage");
     await ensureSeeded();
     const body = await request.json() as { id?: string; action?: string };
     const id = String(body.id ?? "").trim();
@@ -80,7 +80,7 @@ export async function PATCH(request: Request) {
 /** Generates any due expenses now (also runs automatically on server boot). */
 export async function PUT(request: Request) {
   try {
-    await requireStaff(request, "Manager");
+    await requireCapability(request, "finance.manage");
     const generated = await runDueRecurringExpenses();
     return NextResponse.json({ ok: true, generated });
   } catch (e) {

@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { ensureSeeded, getSuppliersCollection, requireStaff } from "@/lib/db";
+import { requireCapability, ensureSeeded, getSuppliersCollection, requireStaff } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
 /** Update a supplier (managers+). Name must stay unique. */
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    await requireStaff(request, "Manager");
+    await requireCapability(request, "suppliers.manage");
     await ensureSeeded();
     const id = decodeURIComponent(params.id);
     const body = await request.json() as Record<string, unknown>;
@@ -38,7 +38,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 /** Delete a supplier (managers+). Blocked while purchase orders still reference the name. */
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
-    await requireStaff(request, "Manager");
+    await requireCapability(request, "suppliers.manage");
     await ensureSeeded();
     const id = decodeURIComponent(params.id);
     const suppliers = await getSuppliersCollection();

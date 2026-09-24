@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  ensureSeeded, requireStaff, getCustomersCollection, getSalesCollection,
+import { requireCapability,
+  ensureSeeded,  getCustomersCollection, getSalesCollection,
   getCustomerPaymentsCollection,
 } from "@/lib/db";
 
@@ -65,7 +65,7 @@ export async function GET() {
 /** Record a customer payment (managers+): money received against credit purchases. */
 export async function POST(request: Request) {
   try {
-    const by = await requireStaff(request, "Manager");
+    const by = await requireCapability(request, "finance.manage");
     await ensureSeeded();
     const body = await request.json() as Record<string, unknown>;
     const customerId = String(body.customerId ?? "").trim();

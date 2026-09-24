@@ -57,8 +57,10 @@ const validators = {
       properties: {
         _id: { bsonType: "string" },
         name: { bsonType: "string", minLength: 1 },
-        role: { enum: ["Administrator", "Manager", "Cashier"] },
-        permissions: { enum: ["Full access", "POS + inventory", "POS access"] },
+        // Role ids reference the roles collection — validated by the API against the
+        // live list, so the schema stays open to custom roles (RBAC).
+        role: { bsonType: "string", minLength: 1, maxLength: 60 },
+        permissions: { bsonType: "string", maxLength: 60 },
         status: { enum: ["Active", "Inactive"] }
       }
     }
@@ -400,6 +402,31 @@ const validators = {
         createdAt: { bsonType: "string" }
       }
     }
+  },
+  roles: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "id", "name", "description", "capabilities", "system", "createdBy", "createdAt", "updatedAt"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        id: { bsonType: "string", minLength: 1, maxLength: 60 },
+        name: { bsonType: "string", minLength: 1, maxLength: 60 },
+        description: { bsonType: "string", maxLength: 300 },
+        capabilities: {
+          bsonType: "array",
+          uniqueItems: true,
+          items: { bsonType: "string", enum: [
+            "sell", "inventory.manage", "purchases.manage", "suppliers.manage",
+            "customers.manage", "finance.manage", "register.operate", "departments.manage",
+            "reports.view", "staff.manage", "settings.manage"
+          ] }
+        },
+        system: { bsonType: "bool" },
+        createdBy: { bsonType: "string" },
+        createdAt: { bsonType: "string" },
+        updatedAt: { bsonType: "string" }
+      }
+    }
   }
 };
 
@@ -482,6 +509,9 @@ const indexes = {
   ],
   activity_log: [
     { key: { createdAt: -1 }, name: "createdAt_-1" }
+  ],
+  roles: [
+    { key: { name: 1 }, name: "name_1" }
   ]
 };
 
@@ -536,6 +566,24 @@ async function main() {
         console.log("✓ seeded 3 staff (demo PINs: 1111 / 2222 / 3333)");
       } else {
         console.log("• staff not empty, skipped seeding");
+      }
+      const rolesCol = db.collection("roles");
+      if ((await rolesCol.countDocuments()) === 0) {
+        // Must stay in sync with ROLE_SEEDS in lib/db.ts.
+        const now = new Date().toISOString();
+        const allCaps = ["sell", "inventory.manage", "purchases.manage", "suppliers.manage", "customers.manage", "finance.manage", "register.operate", "departments.manage", "reports.view", "staff.manage", "settings.manage"];
+        const noAdminCaps = allCaps.filter(c => c !== "staff.manage" && c !== "settings.manage");
+        await rolesCol.insertMany([
+          { _id: "Administrator", id: "Administrator", name: "Owner / Admin", description: "Full control — staff accounts, roles, settings, and every module.", capabilities: allCaps, system: true, createdBy: "system", createdAt: now, updatedAt: now },
+          { _id: "Manager",       id: "Manager",       name: "Manager",        description: "Runs the floor — inventory, purchasing, suppliers, finance, reports, and the register.", capabilities: noAdminCaps, system: true, createdBy: "system", createdAt: now, updatedAt: now },
+          { _id: "Cashier",       id: "Cashier",       name: "Cashier",        description: "Sells at the POS, takes payments, processes refunds, and clocks in and out.", capabilities: ["sell"], system: true, createdBy: "system", createdAt: now, updatedAt: now },
+          { _id: "Inventory Staff", id: "Inventory Staff", name: "Inventory Staff", description: "Stockkeeping — products, categories, stock levels, transfers, and counts.", capabilities: ["sell", "inventory.manage", "reports.view"], system: false, createdBy: "system", createdAt: now, updatedAt: now },
+          { _id: "Sales Staff",     id: "Sales Staff",     name: "Sales Staff",     description: "Front-of-house selling with customer bookkeeping.", capabilities: ["sell", "customers.manage"], system: false, createdBy: "system", createdAt: now, updatedAt: now },
+          { _id: "Accountant",      id: "Accountant",      name: "Accountant",      description: "Reads the numbers — reports, expenses, and payments; no selling or stock changes.", capabilities: ["reports.view", "finance.manage"], system: false, createdBy: "system", createdAt: now, updatedAt: now }
+        ]);
+        console.log("✓ seeded 6 roles (Administrator, Manager, Cashier, Inventory Staff, Sales Staff, Accountant)");
+      } else {
+        console.log("• roles not empty, skipped seeding");
       }
       if ((await sales.countDocuments()) === 0) {
         console.log("• sales left to ensureSeeded() on first API use (its timestamps are relative to 'now')");

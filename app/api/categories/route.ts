@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensureSeeded, getCategoriesCollection, getProductsCollection, requireStaff, type Category } from "@/lib/db";
+import { requireCapability, ensureSeeded, getCategoriesCollection, getProductsCollection,  type Category } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -24,7 +24,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     await ensureSeeded();
-    const by = await requireStaff(request, "Manager");
+    const by = await requireCapability(request, "inventory.manage");
     const body = await request.json() as {
       name?: string; parentId?: string | null; description?: string;
       status?: string; sortOrder?: number;

@@ -2,7 +2,7 @@
 
 import {
   ArrowDownRight, ArrowLeftRight, ArrowUpRight, Banknote, Bell, Box, Boxes, BriefcaseBusiness, Building2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp,
-  CircleDollarSign, ClipboardList, CreditCard, Download, FileBarChart, LayoutDashboard, LogOut, Menu,
+  CircleDollarSign, ClipboardList, CreditCard, Download, FileBarChart, LayoutDashboard, LogOut, Menu, Network,
   Package, Plus, Printer, ReceiptText, RotateCcw, Search, Settings, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Tag, Truck, Upload, Users, Wallet, X
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -18,17 +18,53 @@ const seedProducts: Product[] = [
 ];
 const nextSku = (catalog: Product[]) => `SKU-${String(Math.floor(10000 + Math.random() * 90000))}`;
 
-type StaffRole = "Administrator" | "Manager" | "Cashier";
+type StaffRole = "Administrator" | "Manager" | "Cashier" | (string & {});
 type StaffMember = { name: string; role: StaffRole; permissions: string; status: "Active" | "Inactive"; department?: string };
 type Session = { name: string; role: StaffRole };
+/** Server-enforced capability catalog — mirrors CAPABILITIES in lib/db.ts. */
+const CAPABILITY_LIST = ["sell", "inventory.manage", "purchases.manage", "suppliers.manage", "customers.manage", "finance.manage", "register.operate", "departments.manage", "reports.view", "staff.manage", "settings.manage"] as const;
+type Capability = (typeof CAPABILITY_LIST)[number];
+type RoleDef = { id: string; name: string; description: string; capabilities: string[]; system: boolean; createdBy: string; createdAt: string; updatedAt: string };
+const CAPABILITY_LABELS: Record<Capability, string> = {
+  "sell": "Sell & refund at the POS",
+  "inventory.manage": "Products, categories & stock",
+  "purchases.manage": "Purchase orders",
+  "suppliers.manage": "Suppliers",
+  "customers.manage": "Customers & loyalty",
+  "finance.manage": "Expenses & payments",
+  "register.operate": "Cash register",
+  "departments.manage": "Departments",
+  "reports.view": "Reports & activity log",
+  "staff.manage": "Staff accounts & roles",
+  "settings.manage": "Store settings"
+};
+const CAPABILITY_GROUPS: { group: string; items: Capability[] }[] = [
+  { group: "Sales", items: ["sell"] },
+  { group: "Catalog & stock", items: ["inventory.manage"] },
+  { group: "Buying", items: ["purchases.manage", "suppliers.manage"] },
+  { group: "Customers", items: ["customers.manage"] },
+  { group: "Finance", items: ["finance.manage", "register.operate"] },
+  { group: "Management", items: ["departments.manage", "reports.view", "staff.manage", "settings.manage"] }
+];
 type StoreSettings = { name: string; location: string; receiptFooter: string; currency: string; paymentMethods?: MethodSetting[] };
 const DEFAULT_SETTINGS: StoreSettings = { name: "StoreGenz", location: "Phnom Penh", receiptFooter: "", currency: "$" };
-/** Role rules, mirrored server-side by requireStaff() in lib/db.ts. */
+/** Client-side capability check; the API re-enforces every rule server-side. Falls back to the legacy role ladder while roles load. */
+const CAPS_FALLBACK: Record<string, Capability[]> = {
+  Administrator: [...CAPABILITY_LIST],
+  Manager: CAPABILITY_LIST.filter(c => c !== "staff.manage" && c !== "settings.manage"),
+  Cashier: ["sell"]
+};
+const can = (cap: Capability, role: StaffRole | undefined, roles?: RoleDef[]) => {
+  if (!role) return false;
+  const def = roles?.find(r => r.id === role);
+  const caps = def ? def.capabilities as Capability[] : CAPS_FALLBACK[role as string];
+  return !!caps?.includes(cap);
+};
+/** Back-compat shims over the capability map. */
 const CAN = {
-  sell: (_r: StaffRole) => true,
-  refund: (_r: StaffRole) => true,
-  manageProducts: (r: StaffRole) => r === "Manager" || r === "Administrator",
-  manageStaff: (r: StaffRole) => r === "Administrator"
+  sell: (r: StaffRole, roles?: RoleDef[]) => can("sell", r, roles),
+  manageProducts: (r: StaffRole, roles?: RoleDef[]) => can("inventory.manage", r, roles),
+  manageStaff: (r: StaffRole, roles?: RoleDef[]) => can("staff.manage", r, roles)
 };
 const seedStaff: StaffMember[] = [
   { name: "Sokha P.", role: "Administrator", permissions: "Full access", status: "Active" },
@@ -72,7 +108,7 @@ const navGroups = [
   ]},
   { title: "REPORTS", items: [["Reports", FileBarChart]] },
   { title: "MANAGEMENT", items: [
-    ["Staff", BriefcaseBusiness], ["Roles & Permissions", ShieldCheck], ["Settings", SettingsIcon]
+    ["Staff", BriefcaseBusiness], ["Roles & Permissions", ShieldCheck], ["Departments", Network], ["Settings", SettingsIcon]
   ]}
 ] as const;
 
@@ -89,6 +125,16 @@ type MethodSetting = { name: string; enabled: boolean };
 type RecurringLite = { id: string; category: string; amount: number; frequency: "weekly" | "monthly"; note: string; nextRun: string; lastRun?: string; active: boolean; createdBy: string; createdAt: string };
 type ShiftLite = { id: string; openedBy: string; openedAt: string; openingFloat: number; closedBy?: string; closedAt?: string; closingCount?: number; expectedCash?: number; variance?: number; note?: string; movements: { id: string; direction: "in" | "out"; amount: number; reason: string; by: string; createdAt: string }[] };
 type RegisterData = { open: ShiftLite | null; history: ShiftLite[]; movements: { id: string; shiftId: string; direction: "in" | "out"; amount: number; reason: string; by: string; createdAt: string }[]; defaults: { openingFloat: number; varianceAlert: number } };
+
+/** Shared roles state: the live role definitions from /api/roles. */
+function useRolesData() {
+  const [roles, setRoles] = useState<RoleDef[]>([]);
+  const load = useCallback(() => {
+    fetch("/api/roles").then(r => r.ok ? r.json() : Promise.reject()).then(d => setRoles(d as RoleDef[])).catch(() => {});
+  }, []);
+  useEffect(load, [load]);
+  return { roles, setRoles, reloadRoles: load };
+}
 type DepartmentLite = { id: string; name: string; description: string; createdBy: string; createdAt: string };
 type AttendanceLite = { id: string; staffName: string; clockIn: string; clockOut?: string };
 type ActivityLite = { action: string; detail: string; by: string; createdAt: string };
@@ -108,6 +154,7 @@ function useRegister() {
 function RegisterHub({ sales, role }: { sales: Sale[]; role: StaffRole }) {
   const tabs = ["Register Overview", "Open Register", "Current Shift", "Cash In / Cash Out", "Close Register", "Register History", "Register Settings"] as const;
   const [tab, setTab] = useState<(typeof tabs)[number]>("Register Overview");
+  const useRoles = useRolesData();
   const canManage = CAN.manageProducts(role);
   const { data, load } = useRegister();
   const open = data?.open ?? null;
@@ -143,7 +190,7 @@ function RegisterHub({ sales, role }: { sales: Sale[]; role: StaffRole }) {
       {history.length === 0 ? <div className="empty">No closed shifts yet — the history of counted variances builds here.</div>
         : <DataTable headers={["SHIFT", "OPENED", "CLOSED", "BY", "FLOAT", "EXPECTED", "COUNTED", "VARIANCE"]} rows={[...history].sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? "")).map(s => { const v = money(s.variance ?? 0); const hot = Math.abs(s.variance ?? 0) >= defaults.varianceAlert; return [s.id, new Date(s.openedAt).toLocaleDateString(), s.closedAt ? new Date(s.closedAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—", s.closedBy ?? "—", money(s.openingFloat), money(s.expectedCash ?? 0), money(s.closingCount ?? 0), hot ? v + " ⚠" : v]; })}/>}
     </div>}
-    {tab === "Register Settings" && <RegisterSettingsView defaults={defaults} canManage={role === "Administrator"}/>}
+    {tab === "Register Settings" && <RegisterSettingsView defaults={defaults} canManage={can("settings.manage", role, useRoles.roles)}/>}
   </>;
 }
 
@@ -409,7 +456,8 @@ function RecurringFormModal({ onClose, onSaved }: { onClose: () => void; onSaved
 function PaymentsHub({ sales, role }: { sales: Sale[]; role: StaffRole }) {
   const tabs = ["All Payments", "Customer Payments", "Supplier Payments", "Refunds", "Payment Methods", "Payment Settings"] as const;
   const [tab, setTab] = useState<(typeof tabs)[number]>("All Payments");
-  const isAdmin = role === "Administrator";
+  const useRoles = useRolesData();
+  const isAdmin = can("settings.manage", role, useRoles.roles);
   const refunded = sales.filter(s => s.status === "Refunded");
   const cashIn = sales.filter(s => s.status === "Paid");
   const pendingCredit = sales.filter(s => s.status === "Pending");
@@ -1372,6 +1420,7 @@ export default function Home() {
   const [sales, setSales] = useState<Sale[]>(seedSales);
   const [catalog, setCatalog] = useState<Product[]>(seedProducts);
   const [staff, setStaff] = useState<StaffMember[]>(seedStaff);
+  const { roles, setRoles, reloadRoles } = useRolesData();
   const [settings, setSettings] = useState<StoreSettings>(DEFAULT_SETTINGS);
   const [dbOnline, setDbOnline] = useState<boolean | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -1396,14 +1445,15 @@ export default function Home() {
     try {
       // all=1: full arrays — the dashboard/reports aggregates filter the complete
       // history client-side; the big Transactions table pages server-side instead.
-      const [pRes, sRes, sfRes, seRes] = await Promise.all([fetch("/api/products?all=1"), fetch("/api/sales?all=1"), fetch("/api/staff"), fetch("/api/settings", { credentials: "same-origin" })]);
+      const [pRes, sRes, sfRes, seRes, rRes] = await Promise.all([fetch("/api/products?all=1"), fetch("/api/sales?all=1"), fetch("/api/staff"), fetch("/api/settings", { credentials: "same-origin" }), fetch("/api/roles")]);
       if (!pRes.ok || !sRes.ok) throw new Error("API unavailable");
-      const [p, s, sf, se] = await Promise.all([pRes.json(), sRes.json(), sfRes.ok ? sfRes.json() : null, seRes.ok ? seRes.json() : null]);
+      const [p, s, sf, se, rl] = await Promise.all([pRes.json(), sRes.json(), sfRes.ok ? sfRes.json() : null, seRes.ok ? seRes.json() : null, rRes.ok ? rRes.json() : null]);
       if (!mountedRef.current || gen !== refreshGen.current) return;
       setCatalog(p as Product[]);
       setSales(s as Sale[]);
       if (sf) setStaff(sf as StaffMember[]);
       if (se) setSettings((prev: StoreSettings) => ({ ...prev, ...(se as StoreSettings) }));
+      if (rl) setRoles(rl as RoleDef[]);
       setDbOnline(true);
     } catch {
       if (mountedRef.current && gen === refreshGen.current) setDbOnline(false);
@@ -1597,7 +1647,7 @@ export default function Home() {
           <p className="store-menu-label">Switch store</p>
           <button className="on" disabled><Store size={14}/> {settings.name} — {settings.location} <span>✓ current</span></button>
           <p className="store-menu-note">Other locations appear here once added.</p>
-          {session.role === "Administrator" && <button onClick={() => { setStoreOpen(false); navigate("Settings"); }}><Plus size={14}/> Add store</button>}
+          {can("settings.manage", session.role, roles) && <button onClick={() => { setStoreOpen(false); navigate("Settings"); }}><Plus size={14}/> Add store</button>}
         </div></>}
       </div>
       <nav className="nav-list">{navGroups.map(group => <div key={group.title}><p className="nav-label">{group.title}</p>{group.items.map(([label, Icon]) => <button key={label} onClick={() => navigate(label)} className={`nav-item ${active === label ? "nav-active" : ""}`}><Icon size={18}/><span>{label}</span></button>)}</div>)}</nav>
@@ -1605,12 +1655,13 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && query.trim()) { e.preventDefault(); const t = query.trim(); if (/^#?inv/i.test(t)) { setOrderSearch(t.replace(/^#/, "")); navigate("Transactions"); } else { navigate("Products"); setQuery(t); } } }} placeholder="Search products, orders..."/><kbd className="search-kbd">Ctrl K</kbd></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} methods={(settings.paymentMethods ?? []).filter(m => m.enabled).map(m => m.name)}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Payments" ? <PaymentsHub sales={sales} role={session.role}/> : active === "Expenses" ? <ExpensesHub role={session.role}/> : active === "Cash Register" ? <RegisterHub sales={sales} role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" || active === "Roles & Permissions" ? <StaffHub key={active} staff={staff} sales={sales} role={session.role} currentUser={session.name} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} initialTab={active === "Roles & Permissions" ? "Roles & Permissions" : undefined}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} methods={(settings.paymentMethods ?? []).filter(m => m.enabled).map(m => m.name)}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role, roles)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role, roles)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role, roles)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role, roles)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Payments" ? <PaymentsHub sales={sales} role={session.role}/> : active === "Expenses" ? <ExpensesHub role={session.role}/> : active === "Cash Register" ? <RegisterHub sales={sales} role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role, roles)} onSave={updateSettings}/> : active === "Staff" || active === "Roles & Permissions" || active === "Departments" ? <StaffHub key={active} staff={staff} sales={sales} role={session.role} currentUser={session.name} query={query} onQuery={setQuery} roles={roles} reloadRoles={reloadRoles} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} initialTab={active === "Roles & Permissions" ? "Roles & Permissions" : active === "Departments" ? "Departments" : undefined}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }
 
-const canViewMoney = (r: StaffRole) => r === "Manager" || r === "Administrator";
+/** Money visibility (profit, discounts) follows the finance capability. */
+const canViewMoney = (r: StaffRole | undefined, roles?: RoleDef[]) => can("finance.manage", r, roles);
 
 /** Escapes a CSV cell: quotes doubled, formula-leading characters neutralized. */
 const csvCell = (v: string) => (/^[=+\-@]/.test(v) ? `'` : "") + `"${v.replace(/"/g, '""')}"`;
@@ -2194,12 +2245,10 @@ function ReceiptModal({ sale, onClose, onRefund, storeName, storeLocation, recei
   return <div className="modal-backdrop" onClick={onClose}><div className="modal receipt-modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>Receipt {sale.id}</h2><button aria-label="Close receipt" onClick={onClose}><X size={18}/></button></div><p className="receipt-store"><strong>{storeName}</strong>{storeLocation&&` · ${storeLocation}`}</p><p className="receipt-meta">{sale.customer} · {sale.date} · Paid by {sale.payment}{sale.servedBy ? ` · Served by ${sale.servedBy}` : ""}</p><div className="receipt-lines">{sale.lines.map(l=><div className="receipt-line" key={l.sku}><span>{l.name} <em>× {l.qty}</em></span><strong>{cur(l.price*l.qty)}</strong></div>)}</div>{(sale.discount??0)>0&&<div className="receipt-payline"><span>Discount</span><strong>-{cur(sale.discount as number).slice(1)}</strong></div>}<div className="receipt-total"><span>Total</span><strong>{cur(saleTotal(sale))}</strong></div>{sale.amountPaid!==undefined&&<div className="receipt-payline"><span>Paid by {sale.payment}</span><strong>{cur(sale.amountPaid)}</strong></div>}{sale.changeDue!==undefined&&sale.changeDue>0&&<div className="receipt-payline change"><span>Change due</span><strong>{cur(sale.changeDue)}</strong></div>}<p className="receipt-status">Status: <span className={`status ${statusClass(sale.status)}`}>{sale.status}</span>{sale.status==="Refunded"&&<em> · {sale.refundReason}</em>}</p>{receiptFooter&&<p className="receipt-footer">{receiptFooter}</p>}<div className="modal-actions"><button className="outline-button" onClick={()=>window.print()}><Printer size={15}/>Print</button><button className="outline-button" onClick={onClose}>Close</button>{sale.status!=="Refunded"&&<button className="primary-button" onClick={()=>onRefund(sale)}>Process refund</button>}</div></div></div>;
 }
 
-const ROLES = ["Administrator", "Manager", "Cashier"] as const;
-const PERMS = ["Full access", "POS + inventory", "POS access"] as const;
-
-/** Staff hub: 8 views over the roster, departments, attendance, and the audit trail. */
-function StaffHub({ staff, sales, role, currentUser, query, onQuery, onAdd, onUpdate, onDelete, initialTab }: {
+/** Staff hub: 8 views over the roster, roles, departments, attendance, and the audit trail. */
+function StaffHub({ staff, sales, role, currentUser, query, onQuery, roles, reloadRoles, onAdd, onUpdate, onDelete, initialTab }: {
   staff: StaffMember[]; sales: Sale[]; role: StaffRole; currentUser: string; query: string; onQuery: (q: string) => void;
+  roles: RoleDef[]; reloadRoles: () => void;
   onAdd: (m: StaffMember, pin: string, done?: (ok: boolean) => void) => void;
   onUpdate: (name: string, patch: Partial<StaffMember> & { pin?: string }, done?: (ok: boolean) => void) => void;
   onDelete: (name: string, done?: (ok: boolean) => void) => void; initialTab?: StaffTab;
@@ -2218,9 +2267,9 @@ function StaffHub({ staff, sales, role, currentUser, query, onQuery, onAdd, onUp
     fetch("/api/register").then(r => r.ok ? r.json() : Promise.reject()).then(d => setShifts((d as { history?: ShiftLite[] }).history ?? [])).catch(() => setShifts([]));
   }, []);
   useEffect(loadStaffData, [loadStaffData]);
-  const canManageStaff = CAN.manageStaff(role);
+  const canManageStaff = CAN.manageStaff(role, roles);
   const when = (iso?: string) => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
-  const showProfit = canViewMoney(role);
+  const showProfit = canViewMoney(role, roles);
   const perf = new Map<string, { orders: number; total: number; profit: number }>();
   for (const s of sales.filter(x => x.status !== "Refunded")) {
     const who = s.servedBy ?? "Unattributed";
@@ -2232,38 +2281,16 @@ function StaffHub({ staff, sales, role, currentUser, query, onQuery, onAdd, onUp
   }
   const perfRows = Array.from(perf.entries()).sort((a, b) => b[1].total - a[1].total);
   return <>
-    <PageHeading title="Staff" sub="Team roster, departments, shifts, and the audit trail"/>
+    <PageHeading title="Staff" sub="Team roster, roles, departments, shifts, and the audit trail"/>
     <div className="subnav subnav-wrap">
       {tabs.map(t => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t}</button>)}
     </div>
-    {tab === "All Staff" && <StaffPage staff={staff} query={query} onQuery={onQuery} onAdd={onAdd} onUpdate={onUpdate} onDelete={onDelete} canManage={canManageStaff} currentUser={currentUser}/>}
+    {tab === "All Staff" && <StaffPage staff={staff} query={query} onQuery={onQuery} onAdd={onAdd} onUpdate={onUpdate} onDelete={onDelete} canManage={canManageStaff} currentUser={currentUser} roles={roles}/>}
     {tab === "Add Staff" && (canManageStaff
-      ? <div className="panel empty-panel"><div className="empty"><strong>Add a team member</strong><p>Create a staff account with a role, a permission set, and a login PIN. New members can sign in at the register right away.</p><button className="primary-button" onClick={() => setAdding(true)}><Plus size={15}/> Open add-staff form</button></div></div>
-      : <div className="panel empty-panel"><div className="empty"><strong>Administrators only</strong><p>Ask an administrator to add new staff members.</p></div></div>)}
-    {tab === "Roles & Permissions" && <>
-      <div className="panel table-panel"><div className="toolbar"><strong>Role levels</strong></div>
-        <DataTable headers={["ROLE", "SCOPE"]} rows={[
-          ["Administrator", "Everything a manager can do, plus staff accounts, PINs, departments, and store settings."],
-          ["Manager", "Runs the floor — inventory, purchases, suppliers, expenses, the register, reports, and the activity log."],
-          ["Cashier", "Sells at the POS, takes payments, processes refunds, and clocks in and out."]
-        ]}/>
-      </div>
-      <div className="panel table-panel"><div className="toolbar"><strong>Capability matrix</strong><span className="you-chip">enforced server-side by requireStaff()</span></div>
-        <DataTable headers={["CAPABILITY", "MINIMUM ROLE"]} rows={[
-          ["Sell and take payments at the POS", "All roles"],
-          ["Refund sales", "All roles"],
-          ["Products, categories, stock, transfers", "Manager"],
-          ["Purchases, suppliers, expenses", "Manager"],
-          ["Register shifts and cash movements", "Manager"],
-          ["Departments (create / delete)", "Manager"],
-          ["Reports and the activity log", "Manager"],
-          ["Attendance clock-in and history", "All roles"],
-          ["Staff accounts, roles, and PINs", "Administrator"],
-          ["Store settings", "Administrator"]
-        ]}/>
-      </div>
-    </>}
-    {tab === "Departments" && <DepartmentsView departments={departments} staff={staff} role={role} onUpdate={onUpdate} reload={loadStaffData}/>}
+      ? <div className="panel empty-panel"><div className="empty"><strong>Add a team member</strong><p>Create a staff account with a role and a login PIN — the role decides what the member can do. New members can sign in at the register right away.</p><button className="primary-button" onClick={() => setAdding(true)}><Plus size={15}/> Open add-staff form</button></div></div>
+      : <div className="panel empty-panel"><div className="empty"><strong>Not allowed</strong><p>Your role does not include staff management.</p></div></div>)}
+    {tab === "Roles & Permissions" && <RolesPermissionsView roles={roles} role={role} canManage={canManageStaff} reload={reloadRoles}/>}
+    {tab === "Departments" && <DepartmentsView departments={departments} staff={staff} role={role} roles={roles} onUpdate={onUpdate} reload={loadStaffData}/>}
     {tab === "Shifts" && <div className="panel table-panel"><div className="toolbar"><strong>{shifts ? `${shifts.length} closed register shift${shifts.length === 1 ? "" : "s"}` : "Loading shifts…"}</strong><span className="you-chip">shared with the Cash Register hub</span></div>
       {!shifts ? <div className="empty">Loading…</div> : shifts.length === 0 ? <div className="empty">No closed register shifts yet — open and close a shift from the Cash Register hub and the history lands here.</div>
         : <DataTable headers={["SHIFT", "OPENED BY", "OPENED", "CLOSED", "FLOAT", "COUNTED", "VARIANCE"]} rows={[...shifts].sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? "")).map(s => [s.id, s.openedBy, when(s.openedAt), s.closedAt ? when(s.closedAt) : "—", money(s.openingFloat), money(s.closingCount ?? 0), money(s.variance ?? 0)])}/>}
@@ -2279,14 +2306,14 @@ function StaffHub({ staff, sales, role, currentUser, query, onQuery, onAdd, onUp
           {activity.map((a, i) => <tr key={i}><td>{when(a.createdAt)}</td><td><strong>{a.action}</strong></td><td>{a.detail}</td><td>{a.by}</td></tr>)}
         </tbody></table></div>}
     </div> : <div className="panel empty-panel"><div className="empty"><strong>Managers only</strong><p>The activity log is visible to managers and administrators.</p></div></div>)}
-    {adding && <StaffFormModal onClose={() => setAdding(false)} onSave={(m, pin, done) => onAdd(m, pin, ok => { if (ok) { setAdding(false); setTab("All Staff"); } else done(ok); })}/>}
+    {adding && <StaffFormModal roles={roles} onClose={() => setAdding(false)} onSave={(m, pin, done) => onAdd(m, pin, ok => { if (ok) { setAdding(false); setTab("All Staff"); } else done(ok); })}/>}
   </>;
 }
 
 /** Departments view: create, list with membership, assign staff, delete. */
-function DepartmentsView({ departments, staff, role, onUpdate, reload }: { departments: DepartmentLite[] | null; staff: StaffMember[]; role: StaffRole; onUpdate: (name: string, patch: Partial<StaffMember> & { pin?: string }, done?: (ok: boolean) => void) => void; reload: () => void }) {
-  const isManager = role === "Manager" || role === "Administrator";
-  const isAdmin = role === "Administrator";
+function DepartmentsView({ departments, staff, role, roles, onUpdate, reload }: { departments: DepartmentLite[] | null; staff: StaffMember[]; role: StaffRole; roles: RoleDef[]; onUpdate: (name: string, patch: Partial<StaffMember> & { pin?: string }, done?: (ok: boolean) => void) => void; reload: () => void }) {
+  const isManager = can("departments.manage", role, roles);
+  const isAdmin = can("staff.manage", role, roles);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -2383,7 +2410,83 @@ function AttendanceView({ entries, selfName, reload }: { entries: AttendanceLite
   </>;
 }
 
-function StaffPage({ staff, query, onQuery, onAdd, onUpdate, onDelete, canManage, currentUser }: { staff: StaffMember[]; query: string; onQuery: (q: string) => void; onAdd: (m: StaffMember, pin: string, done?: (ok: boolean) => void) => void; onUpdate: (name: string, patch: Partial<StaffMember> & { pin?: string }, done?: (ok: boolean) => void) => void; onDelete: (name: string, done?: (ok: boolean) => void) => void; canManage: boolean; currentUser: string }) {
+/** Live RBAC view: the role list with editable capability checkboxes and custom-role management. */
+function RolesPermissionsView({ roles, role, canManage, reload }: { roles: RoleDef[]; role: StaffRole; canManage: boolean; reload: () => void }) {
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({ name: "", description: "" });
+  const [formCaps, setFormCaps] = useState<string[]>(["sell"]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const toggle = (list: string[], cap: string) => list.includes(cap) ? list.filter(c => c !== cap) : [...list, cap];
+  const create = async () => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      const res = await fetch("/api/roles", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ name: form.name, description: form.description, capabilities: formCaps }) });
+      const d = await res.json() as { error?: string };
+      if (!res.ok) { setError(d.error ?? "Could not create the role."); return; }
+      setForm({ name: "", description: "" }); setFormCaps(["sell"]); setCreating(false); setSaved(`Role “${form.name}” created.`); reload();
+    } catch { setError("Could not reach the server."); }
+    finally { setBusy(false); }
+  };
+  const patchCaps = async (r: RoleDef, caps: string[]) => {
+    setBusy(true); setError(null); setSaved(null);
+    try {
+      const res = await fetch(`/api/roles/${encodeURIComponent(r.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ capabilities: caps }) });
+      const d = await res.json() as { error?: string };
+      if (!res.ok) { setError(d.error ?? "Could not update the role."); reload(); return; }
+      setSaved(`${r.name} updated — every member of this role is affected immediately.`); reload();
+    } catch { setError("Could not reach the server."); reload(); }
+    finally { setBusy(false); }
+  };
+  const remove = async (r: RoleDef) => {
+    setBusy(true); setError(null); setSaved(null);
+    try {
+      const res = await fetch(`/api/roles/${encodeURIComponent(r.id)}`, { method: "DELETE", credentials: "same-origin" });
+      const d = await res.json() as { error?: string };
+      if (!res.ok) { setError(d.error ?? "Could not delete the role."); return; }
+      setSaved(`Role “${r.name}” deleted.`); reload();
+    } catch { setError("Could not reach the server."); }
+    finally { setBusy(false); }
+  };
+  const CapChecks = ({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }) => <>
+    {CAPABILITY_GROUPS.map(g => <div key={g.group} style={{ marginBottom: 10 }}>
+      <span className="you-chip">{g.group}</span>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 5 }}>
+        {g.items.map(c => <label key={c} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "#566575", fontWeight: 700, cursor: canManage ? "pointer" : "default" }}>
+          <input type="checkbox" checked={value.includes(c)} disabled={!canManage || busy} onChange={() => { if (canManage) onChange(toggle(value, c)); }}/>{CAPABILITY_LABELS[c]}
+        </label>)}
+      </div>
+    </div>)}
+  </>;
+  return <>
+    {canManage && (creating ? <div className="panel purchase-form-panel"><div className="toolbar"><strong>New role</strong></div>
+      <div className="form-grid">
+        <label>Name<input placeholder="e.g. Shift Supervisor" value={form.name} onChange={e => { setForm({ ...form, name: e.target.value }); setError(null); }}/></label>
+        <label>Description (optional)<input placeholder="What this role is for" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}/></label>
+      </div>
+      <div style={{ margin: "12px 0 4px" }}><CapChecks value={formCaps} onChange={setFormCaps}/></div>
+      {error && <p className="field-error" role="alert">{error}</p>}
+      <div className="modal-actions"><button className="outline-button" onClick={() => { setCreating(false); setError(null); }}>Cancel</button><button className="primary-button" disabled={busy || !form.name.trim()} onClick={create}>Create role</button></div>
+    </div>
+    : <div className="panel purchase-form-panel"><div className="toolbar"><strong>Roles decide permissions</strong><button className="text-button" onClick={() => { setSaved(null); setCreating(true); }}><Plus size={13}/> New role</button></div>
+      <p className="form-intro">Every staff member gets their capabilities from their role — edit a role once and every member of it updates instantly. Capabilities are re-checked on the server for every request.</p>
+    </div>)}
+    {!canManage && error && <p className="field-error" role="alert">{error}</p>}
+    {saved && <p className="checkout-success success-banner" role="status">{saved}</p>}
+    {roles.length === 0 ? <div className="panel empty-panel"><div className="empty"><strong>No roles loaded</strong><p>The roles list could not be loaded — refresh the page.</p></div></div>
+      : roles.map(r => <div className="panel" key={r.id} style={{ marginBottom: 16 }}>
+        <div className="toolbar"><strong>{r.name}{r.system && <span className="you-chip"> · system</span>}{r.id === role && <span className="you-chip"> · your role</span>}</strong>
+          {!r.system && canManage && <button className="text-button danger" disabled={busy} onClick={() => remove(r)}>Delete</button>}
+        </div>
+        {r.description && <p className="form-intro" style={{ margin: "-8px 0 12px" }}>{r.description}</p>}
+        <CapChecks value={r.capabilities} onChange={next => patchCaps(r, next)}/>
+      </div>)}
+  </>;
+}
+
+function StaffPage({ staff, query, onQuery, onAdd, onUpdate, onDelete, canManage, currentUser, roles }: { staff: StaffMember[]; query: string; onQuery: (q: string) => void; onAdd: (m: StaffMember, pin: string, done?: (ok: boolean) => void) => void; onUpdate: (name: string, patch: Partial<StaffMember> & { pin?: string }, done?: (ok: boolean) => void) => void; onDelete: (name: string, done?: (ok: boolean) => void) => void; canManage: boolean; currentUser: string; roles: RoleDef[] }) {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<StaffMember | null>(null);
   const [deleting, setDeleting] = useState<StaffMember | null>(null);
@@ -2395,27 +2498,28 @@ function StaffPage({ staff, query, onQuery, onAdd, onUpdate, onDelete, canManage
     <div className="panel table-panel"><div className="toolbar"><strong>{query ? `${rows.length} of ${staff.length} staff` : `${staff.length} staff`}</strong><div className="filter"><Search size={15}/><input placeholder="Search name, role, or status" value={query} onChange={e=>onQuery(e.target.value)}/>{query&&<button className="filter-clear" aria-label="Clear staff search" onClick={()=>onQuery("")}><X size={13}/></button>}</div><div className="select-wrap"><button className="select-button">{staff.filter(m=>m.status==="Active").length} active <ChevronDown size={14}/></button></div></div>
     {rows.length===0 ? <div className="empty">No staff match your search.</div> : <div className="table-wrap"><table><thead><tr>{["NAME","ROLE","PERMISSIONS","STATUS",""].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map(m=><tr key={m.name}>
       <td><strong>{m.name}</strong></td><td>{m.role}</td><td>{m.permissions}</td><td><span className={`status ${m.status==="Inactive"?"refunded":m.status==="Active"?"paid":"pending"}`}>{m.status}</span>{m.name===currentUser&&<em className="you-chip"> · you</em>}</td>
-      <td><div className="row-actions">{canManage ? [<button key="e" className="text-button" onClick={()=>{setBanner(null);setEditing(m);}}>Edit</button>, m.role!=="Administrator" ? <button key="d" className="text-button danger" onClick={()=>{setBanner(null);setDeleting(m);}}>Delete</button> : null] : <span className="you-chip">view only</span>}</div></td>
+      <td><div className="row-actions">{canManage ? [<button key="e" className="text-button" onClick={()=>{setBanner(null);setEditing(m);}}>Edit</button>, !can("staff.manage", m.role, roles) ? <button key="d" className="text-button danger" onClick={()=>{setBanner(null);setDeleting(m);}}>Delete</button> : null] : <span className="you-chip">view only</span>}</div></td>
     </tr>)}</tbody></table></div>}</div>
-    {adding && <StaffFormModal onClose={()=>setAdding(false)} onSave={(m,pin,done)=>{onAdd(m,pin,ok=>{if(ok)setBanner(`${m.name} added to the team.`);done(ok);});}}/>}
-    {editing && <StaffFormModal initial={editing} onClose={()=>setEditing(null)} onSave={(m,pin,done)=>{onUpdate(editing.name,{role:m.role,permissions:m.permissions,...(pin?{pin}:{})},ok=>{if(ok)setBanner(`${m.name} updated.`);done(ok);});}}/>}
+    {adding && <StaffFormModal roles={roles} onClose={()=>setAdding(false)} onSave={(m,pin,done)=>{onAdd(m,pin,ok=>{if(ok)setBanner(`${m.name} added to the team.`);done(ok);});}}/>}
+    {editing && <StaffFormModal roles={roles} initial={editing} onClose={()=>setEditing(null)} onSave={(m,pin,done)=>{onUpdate(editing.name,{role:m.role,...(pin?{pin}:{})},ok=>{if(ok)setBanner(`${m.name} updated.`);done(ok);});}}/>}
     {deleting && <div className="modal-backdrop" onClick={()=>setDeleting(null)}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>Remove staff member</h2><button aria-label="Close remove dialog" onClick={()=>setDeleting(null)}><X size={18}/></button></div><p className="refund-summary">Remove <strong>{deleting.name}</strong> ({deleting.role}) from the team? This cannot be undone.</p><div className="modal-actions"><button className="outline-button" onClick={()=>setDeleting(null)}>Cancel</button><button className="primary-button danger-button" onClick={()=>{onDelete(deleting.name,ok=>{if(ok)setBanner(`${deleting.name} removed.`);});setDeleting(null);}}>Remove member</button></div></div></div>}
   </>;
 }
 
-function StaffFormModal({ initial, onClose, onSave }: { initial?: StaffMember; onClose: () => void; onSave: (m: StaffMember, pin: string, done: (ok: boolean) => void) => void }) {
-  const [form, setForm] = useState({ name: initial?.name ?? "", role: (initial?.role ?? "Cashier") as StaffRole, permissions: initial?.permissions ?? "POS access", pin: "" });
+function StaffFormModal({ initial, roles, onClose, onSave }: { initial?: StaffMember; roles: RoleDef[]; onClose: () => void; onSave: (m: StaffMember, pin: string, done: (ok: boolean) => void) => void }) {
+  const [form, setForm] = useState({ name: initial?.name ?? "", role: (initial?.role ?? "Cashier") as StaffRole, pin: "" });
   const [error, setError] = useState<string | null>(null);
   const submit = () => {
     const name = form.name.trim();
     const pin = form.pin.trim();
     if (!name) return setError("Staff name is required.");
     if (name.length > 80) return setError("Staff name is too long (max 80 characters).");
+    if (!roles.find(r => r.id === form.role)) return setError("Pick a role from the list.");
     if (!/^\d{4,6}$/.test(pin)) return setError("PIN must be 4–6 digits.");
-    onSave({ name, role: form.role, permissions: form.permissions, status: "Active" }, pin, ok => { if (ok) onClose(); else setError("Could not save this staff member — see the message at the top of the page."); });
+    onSave({ name, role: form.role, permissions: roles.find(r => r.id === form.role)?.name ?? "", status: "Active" }, pin, ok => { if (ok) onClose(); else setError("Could not save this staff member — see the message at the top of the page."); });
   };
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => { setForm({ ...form, [k]: e.target.value }); setError(null); };
-  return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>{initial ? "Edit staff member" : "Add staff"}</h2><button aria-label="Close staff form" onClick={onClose}><X size={18}/></button></div><div className="form-grid"><label>Name<input autoFocus placeholder="e.g. Chan L." value={form.name} onChange={set("name")}/></label><label>Login PIN (4–6 digits)<input type="password" inputMode="numeric" maxLength={6} placeholder={initial ? "Leave blank to keep current PIN" : "e.g. 4321"} value={form.pin} onChange={set("pin")}/></label><label>Role<select value={form.role} onChange={set("role")}>{ROLES.map(r=><option key={r} value={r}>{r}</option>)}</select></label><label>Permissions<select value={form.permissions} onChange={set("permissions")}>{PERMS.map(p=><option key={p} value={p}>{p}</option>)}</select></label></div>{error && <p className="field-error" role="alert">{error}</p>}<div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={submit}>{initial ? "Save changes" : "Add staff member"}</button></div></div></div>;
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>{initial ? "Edit staff member" : "Add staff"}</h2><button aria-label="Close staff form" onClick={onClose}><X size={18}/></button></div><div className="form-grid"><label>Name<input autoFocus placeholder="e.g. Chan L." value={form.name} onChange={set("name")}/></label><label>Login PIN (4–6 digits)<input type="password" inputMode="numeric" maxLength={6} placeholder={initial ? "Leave blank to keep current PIN" : "e.g. 4321"} value={form.pin} onChange={set("pin")}/></label><label>Role<select value={form.role} onChange={set("role")}>{roles.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label><label>Permissions<em className="you-chip">from the role — {roles.find(r=>r.id===form.role)?.capabilities.length ?? 0} capabilities</em></label></div>{error && <p className="field-error" role="alert">{error}</p>}<div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={submit}>{initial ? "Save changes" : "Add staff member"}</button></div></div></div>;
 }
 
 function LoginScreen({ onLogin, settings }: { onLogin: (name: string, role: StaffRole) => void; settings: StoreSettings }) {

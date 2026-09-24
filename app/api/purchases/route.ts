@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensureSeeded, getPurchasesCollection, getProductsCollection, getMovementsCollection, requireStaff, type Purchase, type PurchaseStatus } from "@/lib/db";
+import { requireCapability, ensureSeeded, getPurchasesCollection, getProductsCollection, getMovementsCollection,  type Purchase, type PurchaseStatus } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -27,7 +27,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     await ensureSeeded();
-    const by = await requireStaff(request, "Manager");
+    const by = await requireCapability(request, "purchases.manage");
     const body = await request.json() as {
       supplier?: string; note?: string;
       lines?: { sku?: string; qty?: number; cost?: number }[];

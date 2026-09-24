@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { logActivity } from "@/lib/db";
-import { backfillCreatedAt, ensureSeeded, getMovementsCollection, getProductsCollection, getSalesCollection, normalizeLegacySales, requireStaff, type Sale, type SaleLine, type SaleStatus } from "@/lib/db";
+import { requireCapability, logActivity } from "@/lib/db";
+import { backfillCreatedAt, ensureSeeded, getMovementsCollection, getProductsCollection, getSalesCollection, normalizeLegacySales, type Sale, type SaleLine, type SaleStatus } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -74,7 +74,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     await ensureSeeded();
-    const servedBy = await requireStaff(request, "Cashier");
+    const servedBy = await requireCapability(request, "sell");
     const body = await request.json() as { lines?: Partial<SaleLine>[]; customer?: string; payment?: string; amountPaid?: number; discount?: number };
     const rawLines = Array.isArray(body.lines) ? body.lines : [];
     if (rawLines.length === 0) return bad("A sale needs at least one line item.");

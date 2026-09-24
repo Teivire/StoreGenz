@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensureSeeded, requireStaff, getDepartmentsCollection, getStaffCollection } from "@/lib/db";
+import { requireCapability, ensureSeeded,  getDepartmentsCollection, getStaffCollection } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -16,7 +16,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const by = await requireStaff(request, "Manager");
+    const by = await requireCapability(request, "departments.manage");
     await ensureSeeded();
     const body = await request.json() as Record<string, unknown>;
     const name = String(body.name ?? "").trim();
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    await requireStaff(request, "Manager");
+    await requireCapability(request, "departments.manage");
     await ensureSeeded();
     const id = new URL(request.url).searchParams.get("id") ?? "";
     const departments = await getDepartmentsCollection();

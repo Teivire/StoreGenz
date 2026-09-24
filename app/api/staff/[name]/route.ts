@@ -1,29 +1,26 @@
 import { NextResponse } from "next/server";
-import { requireStaff, ensureSeeded, getStaffCollection, getDepartmentsCollection, type StaffMember, type StaffRole } from "@/lib/db";
+import { requireCapability,  ensureSeeded, getStaffCollection, getDepartmentsCollection, getRolesCollection, type StaffMember } from "@/lib/db";
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
-const ROLES: StaffRole[] = ["Administrator", "Manager", "Cashier"];
-const PERMS = ["Full access", "POS + inventory", "POS access"];
 
 /** Update role/permissions/status/department (and optionally the PIN) for one staff member. Requires an Administrator. */
 export async function PATCH(request: Request, { params }: { params: { name: string } }) {
   try {
     await ensureSeeded();
-    await requireStaff(request, "Administrator");
+    await requireCapability(request, "staff.manage");
 
     const name = decodeURIComponent(params.name);
     const body = (await request.json()) as Partial<{ role: string; permissions: string; status: string; pin: string; department: string }>;
     const update: Partial<StaffMember> & { pin?: string } = {};
     if (body.role !== undefined) {
-      if (!ROLES.includes(body.role as StaffRole)) return bad(`Role must be one of: ${ROLES.join(", ")}.`);
-      update.role = body.role as StaffRole;
+      const roleDoc = await (await getRolesCollection()).findOne({ _id: body.role });
+      if (!roleDoc) return bad(`Unknown role "${body.role}" — pick one from the roles list.`);
+      update.role = body.role;
+      update.permissions = roleDoc.name;
     }
-    if (body.permissions !== undefined) {
-      if (!PERMS.includes(body.permissions)) return bad(`Permissions must be one of: ${PERMS.join(", ")}.`);
-      update.permissions = body.permissions;
-    }
+    if (body.permissions !== undefined) return bad("Permissions are derived from the role — set the role instead.");
     if (body.status !== undefined) {
       if (body.status !== "Active" && body.status !== "Inactive") return bad("Status must be Active or Inactive.");
       update.status = body.status;
@@ -61,7 +58,7 @@ export async function PATCH(request: Request, { params }: { params: { name: stri
 export async function DELETE(request: Request, { params }: { params: { name: string } }) {
   try {
     await ensureSeeded();
-    await requireStaff(request, "Administrator");
+    await requireCapability(request, "staff.manage");
     const name = decodeURIComponent(params.name);
     const result = await (await getStaffCollection()).deleteOne({ _id: name });
     if (result.deletedCount === 0) return bad(`Staff member "${name}" not found.`, 404);

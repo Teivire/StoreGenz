@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireStaff, ensureSeeded, getProductsCollection, type Product } from "@/lib/db";
+import { requireCapability,  ensureSeeded, getProductsCollection, type Product } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -80,7 +80,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     await ensureSeeded();
-    await requireStaff(request, "Manager");
+    await requireCapability(request, "inventory.manage");
     const body = await request.json() as Partial<Product>;
     const name = String(body.name ?? "").trim();
     const sku = String(body.sku ?? "").trim().toUpperCase();

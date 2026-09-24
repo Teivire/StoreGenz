@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  ensureSeeded, requireStaff, getRegisterShiftsCollection, getCashMovementsCollection,
+import { requireCapability,
+  ensureSeeded,  getRegisterShiftsCollection, getCashMovementsCollection,
   getSalesCollection, readSettings, logActivity, type StoredSale,
 } from "@/lib/db";
 
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
     const action = String(body.action ?? "").trim();
 
     if (action === "open") {
-      const by = await requireStaff(request, "Manager");
+      const by = await requireCapability(request, "register.operate");
       const amount = money2(Number(body.openingFloat ?? 0));
       if (!Number.isFinite(amount) || amount < 0) return bad("Opening float must be zero or more.");
       const shifts = await getRegisterShiftsCollection();
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "cashIn" || action === "cashOut") {
-      const by = await requireStaff(request, "Manager");
+      const by = await requireCapability(request, "register.operate");
       const amount = money2(Number(body.amount));
       const reason = String(body.reason ?? "").trim();
       if (!Number.isFinite(amount) || amount < 0.01) return bad("Amount must be at least 0.01.");
@@ -109,7 +109,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "close") {
-      const by = await requireStaff(request, "Manager");
+      const by = await requireCapability(request, "register.operate");
       const count = money2(Number(body.closingCount));
       if (!Number.isFinite(count) || count < 0) return bad("Closing count must be zero or more.");
       const shifts = await getRegisterShiftsCollection();

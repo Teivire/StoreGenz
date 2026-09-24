@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import {
+import { requireCapability,
   ensureSeeded, getSuppliersCollection, getPurchasesCollection,
-  getSupplierPaymentsCollection, requireStaff,
+  getSupplierPaymentsCollection, 
 } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
@@ -57,7 +57,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     await ensureSeeded();
-    const by = await requireStaff(request, "Manager");
+    const by = await requireCapability(request, "finance.manage");
     const body = await request.json() as Record<string, unknown>;
     const supplierId = String(body.supplierId ?? "").trim();
     const amount = Math.round(Number(body.amount) * 100) / 100;

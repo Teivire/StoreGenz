@@ -3,9 +3,57 @@ import { MongoClient } from "mongodb";
 export type Product = { name: string; sku: string; category: string; price: number; cost: number; stock: number; image?: string };
 export type SaleLine = { name: string; sku: string; price: number; cost: number; qty: number };
 export type SaleStatus = "Paid" | "Pending" | "Refunded";
-export type StaffRole = "Administrator" | "Manager" | "Cashier";
+/**
+ * Capabilities: the atomic server-enforced permission units of the POS. Roles bundle
+ * them; every gated API route checks one. Attendance (clock in/out) is implicit for
+ * every authenticated Active staff member.
+ */
+export const CAPABILITIES = [
+  "sell",                 // create sales and process refunds at the POS
+  "inventory.manage",     // products, categories, stock adjustments, transfers
+  "purchases.manage",     // purchase orders (receive/return)
+  "suppliers.manage",     // supplier records
+  "customers.manage",     // customer records, groups, loyalty
+  "finance.manage",       // expenses, recurring templates, supplier/customer payments, profit visibility
+  "register.operate",     // open/close register shifts, cash movements, register settings
+  "departments.manage",   // staff departments
+  "reports.view",         // reports hub and the activity log
+  "staff.manage",         // staff accounts, roles, and PINs
+  "settings.manage",      // store settings
+] as const;
+export type Capability = (typeof CAPABILITIES)[number];
+
+/** The three roles seeded before RBAC existed keep their legacy ids, so existing staff docs need no migration. */
+export type SystemRoleId = "Administrator" | "Manager" | "Cashier";
+export type StaffRole = SystemRoleId | (string & {});
 export type StaffMember = { name: string; role: StaffRole; permissions: string; status: "Active" | "Inactive"; department?: string };
 export type StoredStaff = StaffMember & { _id: string; pin: string };
+
+/** A role bundles the capabilities its members get. System roles cannot be renamed or deleted. */
+export type Role = {
+  id: string;               // slug; stored as _id; a staff member's `role` field holds this value
+  name: string;             // display name
+  description: string;
+  capabilities: Capability[];
+  system: boolean;          // seeded role: rename/delete blocked, id is load-bearing
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type StoredRole = Role & { _id: string };
+
+/**
+ * The six default roles. User → Role → Capabilities per the RBAC spec; ranks (1 = highest)
+ * only matter as a fallback when a role exists without a capabilities list.
+ */
+export const ROLE_SEEDS: (Omit<Role, "createdAt" | "updatedAt"> & { rank: number })[] = [
+  { id: "Administrator", name: "Owner / Admin", description: "Full control — staff accounts, roles, settings, and every module.", capabilities: [...CAPABILITIES], system: true, createdBy: "system", rank: 1 },
+  { id: "Manager", name: "Manager", description: "Runs the floor — inventory, purchasing, suppliers, finance, reports, and the register.", capabilities: CAPABILITIES.filter(c => c !== "staff.manage" && c !== "settings.manage"), system: true, createdBy: "system", rank: 2 },
+  { id: "Cashier", name: "Cashier", description: "Sells at the POS, takes payments, processes refunds, and clocks in and out.", capabilities: ["sell"], system: true, createdBy: "system", rank: 3 },
+  { id: "Inventory Staff", name: "Inventory Staff", description: "Stockkeeping — products, categories, stock levels, transfers, and counts.", capabilities: ["sell", "inventory.manage", "reports.view"], system: false, createdBy: "system", rank: 3 },
+  { id: "Sales Staff", name: "Sales Staff", description: "Front-of-house selling with customer bookkeeping.", capabilities: ["sell", "customers.manage"], system: false, createdBy: "system", rank: 3 },
+  { id: "Accountant", name: "Accountant", description: "Reads the numbers — reports, expenses, and payments; no selling or stock changes.", capabilities: ["reports.view", "finance.manage"], system: false, createdBy: "system", rank: 3 },
+];
 
 /** Department: a staff grouping (Sales floor, Warehouse…) used by the Staff hub. */
 export type Department = {
@@ -340,6 +388,18 @@ export async function getDepartmentsCollection() {
   return (await getDb()).collection<StoredDepartment>("departments");
 }
 
+export async function getRolesCollection() {
+  return (await getDb()).collection<StoredRole>("roles");
+}
+
+/** Capabilities for a role id: live from the roles collection, falling back to the seeds (and to none for unknown roles). */
+export async function capabilitiesOfRole(role: string): Promise<Capability[]> {
+  if (!role) return [];
+  const doc = await (await getRolesCollection()).findOne({ _id: role });
+  if (doc) return doc.capabilities ?? [];
+  return ROLE_SEEDS.find(r => r.id === role)?.capabilities ?? [];
+}
+
 export async function getAttendanceCollection() {
   return (await getDb()).collection<StoredAttendance>("attendance");
 }
@@ -452,8 +512,65 @@ export async function runDueRecurringExpenses(): Promise<number> {
   return generated;
 }
 
-/** Permission tiers, highest first. Cashiers sell and refund; managers run the catalog; admins manage people. */
-const ROLE_RANK: Record<StaffRole, number> = { Cashier: 1, Manager: 2, Administrator: 3 };
+/** Legacy permission tiers, highest first — only consulted when a role has no capabilities stored. */
+const SYSTEM_ROLE_RANK: Record<SystemRoleId, number> = { Cashier: 1, Manager: 2, Administrator: 3 };
+
+/** The capability each legacy minimum-role demanded, so pre-RBAC call sites keep their meaning. */
+const MIN_ROLE_CAPABILITY: Record<SystemRoleId, Capability> = { Cashier: "sell", Manager: "inventory.manage", Administrator: "staff.manage" };
+
+/**
+ * Resolves the signed-in staff member to { name, role, capabilities } via the session
+ * cookie or the X-Staff-Name/X-Staff-Pin headers, enforcing an Active account.
+ * Capability checks are done by requireCapability/requireStaff on top of this.
+ */
+async function resolveCaller(request: Request): Promise<{ name: string; role: StaffRole; capabilities: Capability[] }> {
+  const fail = (status: number, message: string): never => {
+    throw Object.assign(new Error(message), { status });
+  };
+  if (readSessionToken(request)) {
+    const viaSession = await readSession(request);
+    if (viaSession) return { name: viaSession.name, role: viaSession.role, capabilities: await capabilitiesOfRole(viaSession.role) };
+  }
+  const name = request.headers.get("x-staff-name") ?? "";
+  const pin = request.headers.get("x-staff-pin") ?? "";
+  if (!name || !pin) fail(401, "Sign in to make changes.");
+  const doc = await getStaffCollection().then(c => c.findOne({ _id: name }));
+  if (doc === null || doc.pin !== pin) return fail(401, "Invalid staff name or PIN.");
+  if (doc.status !== "Active") return fail(403, "This account is inactive.");
+  return { name: doc.name, role: doc.role, capabilities: await capabilitiesOfRole(doc.role) };
+}
+
+/**
+ * Shared guard for mutating API routes: authenticates via the HttpOnly session
+ * cookie first (browser), falling back to the X-Staff-Name / X-Staff-Pin headers
+ * (scripts and tests), then enforces the capability and that the account is Active.
+ * Returns the caller's name on success. Throws plain Error objects carrying an HTTP
+ * `status` (401 unauthenticated, 403 forbidden) for routes to map.
+ */
+export async function requireCapability(request: Request, capability: Capability): Promise<string> {
+  const caller = await resolveCaller(request);
+  if (!caller.capabilities.includes(capability))
+    throw Object.assign(new Error(`Requires the "${capability}" capability (role: ${caller.role}).`), { status: 403 });
+  return caller.name;
+}
+
+/**
+ * Backward-compatible guard: pass a legacy minimum role to enforce its equivalent
+ * capability, or omit the role to require any authenticated Active staff member
+ * (used by attendance and public-ish reads). Falls back to the legacy rank
+ * comparison when the caller's role has no stored capabilities.
+ */
+export async function requireStaff(request: Request, minRole?: SystemRoleId): Promise<string> {
+  const caller = await resolveCaller(request);
+  if (!minRole) return caller.name;
+  if (caller.capabilities.length === 0) {
+    const rank = SYSTEM_ROLE_RANK[caller.role as SystemRoleId] ?? 0;
+    if (rank < SYSTEM_ROLE_RANK[minRole])
+      throw Object.assign(new Error(`Requires ${minRole} role or higher.`), { status: 403 });
+    return caller.name;
+  }
+  return requireCapability(request, MIN_ROLE_CAPABILITY[minRole]);
+}
 
 /** Reads the session token from the request's Cookie header, if present. */
 function readSessionToken(request: Request): string | null {
@@ -500,8 +617,7 @@ export async function readSession(request: Request): Promise<SessionProfile | nu
     permissions: doc.permissions,
     status: doc.status,
     signedInAt: session.createdAt,
-  };
-}
+  };}
 
 /** Deletes the request's session (logout) if it has one. */
 export async function deleteSession(request: Request): Promise<void> {
@@ -530,28 +646,7 @@ export async function createSession(staffId: string): Promise<string> {
  * Active. Returns the caller's name on success. Throws plain Error objects
  * carrying an HTTP `status` (401 unauthenticated, 403 forbidden) for routes to map.
  */
-export async function requireStaff(request: Request, minRole: StaffRole): Promise<string> {
-  const fail = (status: number, message: string): never => {
-    throw Object.assign(new Error(message), { status });
-  };
-  if (readSessionToken(request)) {
-    const viaSession = await readSession(request);
-    if (viaSession) {
-      if (ROLE_RANK[viaSession.role] < ROLE_RANK[minRole])
-        fail(403, `Requires ${minRole} role or higher.`);
-      return viaSession.name;
-    }
-  }
-  const name = request.headers.get("x-staff-name") ?? "";
-  const pin = request.headers.get("x-staff-pin") ?? "";
-  if (!name || !pin) fail(401, "Sign in to make changes.");
-  const doc = await getStaffCollection().then(c => c.findOne({ _id: name }));
-  if (doc === null || doc.pin !== pin) return fail(401, "Invalid staff name or PIN.");
-  if (doc.status !== "Active") return fail(403, "This account is inactive.");
-  if (ROLE_RANK[doc.role] < ROLE_RANK[minRole])
-    return fail(403, `Requires ${minRole} role or higher.`);
-  return doc.name;
-}
+
 
 /**
  * Idempotent seed + index setup. Memoized on global so dev HMR module re-evals
@@ -582,6 +677,14 @@ export function ensureSeeded(): Promise<void> {
     await sales.createIndex({ servedBy: 1, createdAt: -1 }, { name: "servedBy_1_createdAt_-1" });
     // sessions: TTL — Mongo auto-deletes expired sessions on its own schedule
     await sessions.createIndex({ expiresAt: 1 }, { name: "expiresAt_1", expireAfterSeconds: 0 });
+
+    // roles: one doc per role; display names are unique so pickers stay unambiguous
+    const roles = db.collection<StoredRole>("roles");
+    await roles.createIndex({ name: 1 }, { name: "name_1" });
+    if ((await roles.countDocuments()) === 0) {
+      const now = new Date().toISOString();
+      await roles.insertMany(ROLE_SEEDS.map(({ rank: _rank, ...r }) => ({ ...r, _id: r.id, createdAt: now, updatedAt: now })));
+    }
 
     // Seed the categories taxonomy from whatever the catalog already uses so the
     // Categories collection starts consistent with live products.
@@ -713,6 +816,9 @@ export function ensureSeeded(): Promise<void> {
       await sales.insertMany(seedSales.map(s => ({ ...s, _id: s.id })));
     }
   })();
+  // A rejected seed (e.g. an index conflict) must not poison the memoized promise forever —
+  // clear it so the next request retries instead of every route 503ing until restart.
+  global._seedPromise.catch(() => { global._seedPromise = undefined; });
   return global._seedPromise;
 }
 

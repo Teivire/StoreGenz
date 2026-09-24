@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensureSeeded, getExpensesCollection, requireStaff, logActivity } from "@/lib/db";
+import { requireCapability, ensureSeeded, getExpensesCollection,  logActivity } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -25,7 +25,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     await ensureSeeded();
-    const by = await requireStaff(request, "Manager");
+    const by = await requireCapability(request, "finance.manage");
     const body = await request.json() as { category?: string; amount?: number; note?: string; date?: string };
     const category = EXPENSE_CATEGORIES.includes(String(body.category)) ? String(body.category) : "";
     if (!category) return bad(`Category must be one of: ${EXPENSE_CATEGORIES.join(", ")}.`);

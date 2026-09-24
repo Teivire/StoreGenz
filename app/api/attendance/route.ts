@@ -7,7 +7,7 @@ const bad = (message: string, status = 400) => NextResponse.json({ error: messag
 export async function GET(request: Request) {
   try {
     await ensureSeeded();
-    await requireStaff(request, "Cashier");
+    await requireStaff(request);
     const limit = Math.min(Math.max(parseInt(new URL(request.url).searchParams.get("limit") ?? "100", 10) || 100, 1), 500);
     const docs = await (await getAttendanceCollection()).find().sort({ clockIn: -1 }).limit(limit).toArray();
     return NextResponse.json(docs.map(({ _id, ...a }) => a));
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
 /** POST { action: "clockIn" | "clockOut" } — the signed-in staff member records their own attendance. */
 export async function POST(request: Request) {
   try {
-    const by = await requireStaff(request, "Cashier");
+    const by = await requireStaff(request);
     await ensureSeeded();
     const body = await request.json() as { action?: string };
     const action = String(body.action ?? "").trim();

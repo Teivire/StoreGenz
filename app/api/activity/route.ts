@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { ensureSeeded, requireStaff, getActivityCollection } from "@/lib/db";
+import { requireCapability, ensureSeeded,  getActivityCollection } from "@/lib/db";
 
 /** GET: activity trail, newest first (?limit= default 100, max 500). Manager+. */
 export async function GET(request: Request) {
   try {
-    await requireStaff(request, "Manager");
+    await requireCapability(request, "reports.view");
     await ensureSeeded();
     const limit = Math.min(Math.max(parseInt(new URL(request.url).searchParams.get("limit") ?? "100", 10) || 100, 1), 500);
     const docs = await (await getActivityCollection()).find().sort({ createdAt: -1 }).limit(limit).toArray();

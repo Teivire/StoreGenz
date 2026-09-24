@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireStaff, ensureSeeded, getProductsCollection, getMovementsCollection, type Product, type StoredProduct } from "@/lib/db";
+import { requireCapability,  ensureSeeded, getProductsCollection, getMovementsCollection, type Product, type StoredProduct } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -7,7 +7,7 @@ const bad = (message: string, status = 400) => NextResponse.json({ error: messag
 export async function PATCH(request: Request, { params }: { params: { sku: string } }) {
   try {
     await ensureSeeded();
-    await requireStaff(request, "Manager");
+    await requireCapability(request, "inventory.manage");
     const sku = decodeURIComponent(params.sku).toUpperCase();
     const body = await request.json() as { price?: number; cost?: number; category?: string; name?: string; stock?: number; stockDelta?: number; image?: string | null };
     const products = await getProductsCollection();
@@ -61,7 +61,7 @@ export async function PATCH(request: Request, { params }: { params: { sku: strin
 
     // Ledger: record manual stock deltas so Stock Movement has a real history.
     if (body.stockDelta !== undefined && Number(body.stockDelta) !== 0) {
-      const by = await requireStaff(request, "Manager").catch(() => "system");
+      const by = await requireCapability(request, "inventory.manage").catch(() => "system");
       await getMovementsCollection().then(m => m.insertOne({
         _id: `${sku}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         sku, productName: update.name ?? existing.name,
@@ -85,7 +85,7 @@ export async function PATCH(request: Request, { params }: { params: { sku: strin
 export async function DELETE(request: Request, { params }: { params: { sku: string } }) {
   try {
     await ensureSeeded();
-    await requireStaff(request, "Manager");
+    await requireCapability(request, "inventory.manage");
     const sku = decodeURIComponent(params.sku).toUpperCase();
     const products = await getProductsCollection();
     const result = await products.deleteOne({ _id: sku });

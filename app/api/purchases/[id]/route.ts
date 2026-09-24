@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensureSeeded, getPurchasesCollection, getProductsCollection, getMovementsCollection, requireStaff } from "@/lib/db";
+import { requireCapability, ensureSeeded, getPurchasesCollection, getProductsCollection, getMovementsCollection, requireStaff } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -13,7 +13,7 @@ const bad = (message: string, status = 400) => NextResponse.json({ error: messag
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
     await ensureSeeded();
-    const by = await requireStaff(request, "Manager");
+    const by = await requireCapability(request, "purchases.manage");
     const id = decodeURIComponent(params.id);
     const body = await request.json() as { action?: string };
     const purchases = await getPurchasesCollection();
