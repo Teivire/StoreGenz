@@ -1,9 +1,9 @@
 "use client";
 
 import {
-  ArrowDownRight, ArrowUpRight, Bell, Box, BriefcaseBusiness, Building2, ChevronDown, ChevronUp,
+  ArrowDownRight, ArrowLeftRight, ArrowUpRight, Banknote, Bell, Box, Boxes, BriefcaseBusiness, Building2, ChevronDown, ChevronUp,
   CircleDollarSign, ClipboardList, CreditCard, Download, FileBarChart, LayoutDashboard, LogOut, Menu,
-  Package, Plus, Printer, Search, Settings, ShoppingCart, Store, Tag, Truck, Users, X
+  Package, Plus, Printer, ReceiptText, RotateCcw, Search, Settings, Settings as SettingsIcon, ShieldCheck, ShoppingCart, Store, Tag, Truck, Users, Wallet, X
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -16,8 +16,6 @@ const seedProducts: Product[] = [
   { name: "Palm Sugar 500g", sku: "SKU-00555", category: "Groceries", price: 3.2, cost: 2.1, stock: 25 },
   { name: "Laundry Detergent 1kg", sku: "SKU-00783", category: "Household", price: 4.75, cost: 3.4, stock: 18 }
 ];
-const brandOf = (name: string) => name.split(" ")[0];
-const unitOf = (name: string) => (name.match(/\d+(?:\.\d+)?\s*(kg|g|ml|l)\b/i)?.[1] ?? "pc");
 const nextSku = (catalog: Product[]) => `SKU-${String(Math.floor(10000 + Math.random() * 90000))}`;
 
 type StaffRole = "Administrator" | "Manager" | "Cashier";
@@ -60,24 +58,42 @@ const itemCount = (s: Sale) => s.lines.reduce((n, l) => n + l.qty, 0);
 const statusClass = (s: SaleStatus) => s === "Refunded" ? "refunded" : s === "Pending" ? "pending" : "paid";
 
 const navGroups = [
-  { title: "MAIN MENU", items: [
-    ["Dashboard", LayoutDashboard], ["Sales", ShoppingCart], ["Products", Package],
-    ["Purchases", ClipboardList], ["Inventory", Box], ["Customers", Users],
-    ["Suppliers", Truck], ["Finance", CircleDollarSign], ["Reports", FileBarChart]
+  { title: "WORKSPACE", items: [["Dashboard", LayoutDashboard]] },
+  { title: "SALES", items: [
+    ["POS / New Sale", ShoppingCart], ["Transactions", ReceiptText], ["Returns & Refunds", RotateCcw]
   ]},
-  { title: "MANAGEMENT", items: [["Staff", BriefcaseBusiness], ["Settings", Settings]] }
+  { title: "CATALOG", items: [["Products", Package], ["Categories", Tag]] },
+  { title: "INVENTORY", items: [
+    ["Stock", Boxes], ["Purchases", ClipboardList], ["Suppliers", Truck], ["Stock Transfers", ArrowLeftRight]
+  ]},
+  { title: "CUSTOMERS", items: [["Customers", Users]] },
+  { title: "FINANCE", items: [
+    ["Payments", CreditCard], ["Expenses", Wallet], ["Cash Register", Banknote]
+  ]},
+  { title: "REPORTS", items: [["Reports", FileBarChart]] },
+  { title: "MANAGEMENT", items: [
+    ["Staff", BriefcaseBusiness], ["Roles & Permissions", ShieldCheck], ["Settings", SettingsIcon]
+  ]}
 ] as const;
 
 const money = (n: number) => `${n < 0 ? "-" : ""}$${Math.abs(n).toFixed(2)}`;
 const pageInfo: Record<string, { title: string; subtitle: string; action?: string }> = {
-  "Sales": { title: "Sales", subtitle: "Manage sales, returns, and customer receipts", action: "New sale" },
-  "Purchases": { title: "Purchases", subtitle: "Track purchase orders and supplier deliveries", action: "New purchase" },
-  "Inventory": { title: "Inventory", subtitle: "Monitor stock levels across your store", action: "Adjust stock" },
-  "Customers": { title: "Customers", subtitle: "Build relationships and manage customer accounts", action: "Add customer" },
-  "Suppliers": { title: "Suppliers", subtitle: "Manage your supplier network and contacts", action: "Add supplier" },
-  "Finance": { title: "Finance", subtitle: "Keep track of income, expenses, and cash flow" },
+  "POS / New Sale": { title: "Point of sale", subtitle: "Ring up sales, take payment, and print receipts" },
+  "Transactions": { title: "Transactions", subtitle: "Every sale, with receipts and refunds" },
+  "Returns & Refunds": { title: "Returns & refunds", subtitle: "Process returns and review refund history" },
+  "Products": { title: "Products", subtitle: "Manage your catalog, pricing, and categories" },
+  "Categories": { title: "Categories", subtitle: "Group products and track catalog value" },
+  "Stock": { title: "Stock", subtitle: "Monitor and adjust stock levels across your store" },
+  "Purchases": { title: "Purchases", subtitle: "Track purchase orders and supplier deliveries" },
+  "Suppliers": { title: "Suppliers", subtitle: "Manage your supplier network and contacts" },
+  "Stock Transfers": { title: "Stock transfers", subtitle: "Move stock between locations" },
+  "Customers": { title: "Customers", subtitle: "Build relationships and manage customer accounts" },
+  "Payments": { title: "Payments", subtitle: "Money in — payments received and awaiting payment" },
+  "Expenses": { title: "Expenses", subtitle: "Money out — record rent, utilities, and supplies" },
+  "Cash Register": { title: "Cash register", subtitle: "Income, refunds, and cash flow at a glance" },
   "Reports": { title: "Reports", subtitle: "Understand your store performance" },
   "Staff": { title: "Staff", subtitle: "Manage team members and permissions", action: "Add staff" },
+  "Roles & Permissions": { title: "Roles & permissions", subtitle: "Who can do what across the workspace" },
   "Settings": { title: "Settings", subtitle: "Configure your StoreGenz workspace" }
 };
 
@@ -298,7 +314,7 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search anything..."/></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className="page-content">{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "Products" ? <Products catalog={catalog} query={query} onQuery={setQuery} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Sales" ?<Sales catalog={catalog} sales={sales} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Reports" ? <Reports sales={sales} catalog={catalog}/> : active === "Finance" ? <Finance sales={sales}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <div className="page-content">{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS / New Sale" || active === "Transactions" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS / New Sale" ? "pos" : active === "Transactions" ? "history" : "returns"} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Products" || active === "Categories" ? <Products key={active} catalog={catalog} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "categories" : "products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" ? <StockPage catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock}/> : active === "Cash Register" ? <Finance sales={sales}/> : active === "Reports" ? <Reports sales={sales} catalog={catalog}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }
@@ -457,7 +473,7 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
         <h1>Sales overview <span>👋</span></h1>
         <p className="subtitle">Welcome back, {userName} — here&apos;s how the store is performing.</p>
       </div>
-      <button className="primary-button" onClick={() => navigate("Sales")}><Plus size={18}/> New sale</button>
+      <button className="primary-button" onClick={() => navigate("POS / New Sale")}><Plus size={18}/> New sale</button>
     </div>
 
     <div className="dash-toolbar">
@@ -511,12 +527,12 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
   </>;
 }
 
-type ProductsTab = "products" | "categories" | "brands" | "units" | "variants" | "stock";
+type ProductsTab = "products" | "categories" | "stock";
 
 const PAGE_SIZE = 10;
 
-function Products({ catalog, query, onQuery, onUpsert, onDelete, onAdjust, canManage }: { catalog: Product[]; query: string; onQuery: (q: string) => void; onUpsert: (p: Product, done?: (ok: boolean) => void) => void; onDelete: (sku: string, done?: (ok: boolean) => void) => void; onAdjust: (sku: string, delta: number) => void; canManage: boolean }) {
-  const [tab, setTab] = useState<ProductsTab>("products");
+function Products({ catalog, query, onQuery, onUpsert, onDelete, onAdjust, canManage, initialTab }: { catalog: Product[]; query: string; onQuery: (q: string) => void; onUpsert: (p: Product, done?: (ok: boolean) => void) => void; onDelete: (sku: string, done?: (ok: boolean) => void) => void; onAdjust: (sku: string, delta: number) => void; canManage: boolean; initialTab?: ProductsTab }) {
+  const [tab, setTab] = useState<ProductsTab>(initialTab ?? "products");
   const [catOpen, setCatOpen] = useState(false);
   const [category, setCategory] = useState("All categories");
   const [editing, setEditing] = useState<Product | null>(null);
@@ -575,14 +591,12 @@ function Products({ catalog, query, onQuery, onUpsert, onDelete, onAdjust, canMa
   const rows = serverItems ?? localMatches;
   const goPage = (p: number) => { setPage(Math.min(Math.max(1, p), serverMeta.pages)); };
 
-  return <><PageHeading title="Products" sub="Manage your catalog, pricing, and stock" action={canManage ? "Add product" : undefined} onAction={()=>{setBanner(null);setAdding(true);}}/><div className="subnav">
+  return <><PageHeading title={pageInfo[initialTab === "categories" ? "Categories" : "Products"].title} sub={pageInfo[initialTab === "categories" ? "Categories" : "Products"].subtitle} action={initialTab === "categories" ? undefined : (canManage ? "Add product" : undefined)} onAction={()=>{setBanner(null);setAdding(true);}}/>
+  {initialTab !== "categories" && <div className="subnav">
     <button className={`tab ${tab==="products"?"active":""}`} onClick={()=>switchTab("products")}>Products</button>
     <button className={`tab ${tab==="categories"?"active":""}`} onClick={()=>switchTab("categories")}>Categories</button>
-    <button className={`tab ${tab==="brands"?"active":""}`} onClick={()=>switchTab("brands")}>Brands</button>
-    <button className={`tab ${tab==="units"?"active":""}`} onClick={()=>switchTab("units")}>Units</button>
-    <button className={`tab ${tab==="variants"?"active":""}`} onClick={()=>switchTab("variants")}>Variants</button>
     <button className={`tab ${tab==="stock"?"active":""}`} onClick={()=>switchTab("stock")}>Stock adjustment</button>
-  </div>
+  </div>}
   {banner && <p className="checkout-success success-banner" role="status">{banner}</p>}
   {serverError && <p className="offline-banner" role="alert">{serverError}</p>}
   {tab==="products" && <div className="panel table-panel"><div className="toolbar"><strong>{serverItems ? `${serverMeta.total} products` : `${localMatches.length} products`}</strong><div className="filter"><Search size={15}/><input placeholder="Filter products" value={query} onChange={e=>{onQuery(e.target.value);setPage(1);}}/></div><div className="select-wrap"><button className="select-button" onClick={()=>setCatOpen(o=>!o)}>{category} <ChevronDown size={14}/></button>{catOpen && <><button className="menu-backdrop" aria-label="Close category menu" onClick={()=>setCatOpen(false)}/><div className="select-menu"><button className={category==="All categories"?"on":""} onClick={()=>{setCategory("All categories");setPage(1);setCatOpen(false);}}>All categories</button>{categories.map(c=><button key={c} className={category===c?"on":""} onClick={()=>{setCategory(c);setPage(1);setCatOpen(false);}}>{c}</button>)}</div></>}</div></div>
@@ -594,9 +608,6 @@ function Products({ catalog, query, onQuery, onUpsert, onDelete, onAdjust, canMa
     </tr>)}</tbody></table></div>}
     {serverItems && serverMeta.pages > 1 && (<div className="pager"><button className="outline-button" disabled={page<=1} onClick={()=>goPage(page-1)}>‹ Prev</button><span>Page {page} of {serverMeta.pages} · {serverMeta.total} products</span><button className="outline-button" disabled={page>=serverMeta.pages} onClick={()=>goPage(page+1)}>Next ›</button></div>)}</div>}
   {tab==="categories" && <div className="panel table-panel"><div className="toolbar"><strong>{categories.length} categories</strong></div><DataTable headers={["CATEGORY","PRODUCTS","UNITS IN STOCK","VALUE","STATUS"]} rows={categories.map(c=>{const ps=catalog.filter(p=>p.category===c);return [c,String(ps.length),String(ps.reduce((n,p)=>n+p.stock,0)),money(ps.reduce((n,p)=>n+p.price*p.stock,0)),"Active"];})}/></div>}
-  {tab==="brands" && <div className="panel table-panel"><div className="toolbar"><strong>{new Set(catalog.map(p=>brandOf(p.name))).size} brands</strong></div><DataTable headers={["BRAND","PRODUCTS","UNITS IN STOCK","STATUS"]} rows={Array.from(new Set(catalog.map(p=>brandOf(p.name)))).sort().map(b=>{const ps=catalog.filter(p=>brandOf(p.name)===b);return [b,String(ps.length),String(ps.reduce((n,p)=>n+p.stock,0)),"Active"];})}/></div>}
-  {tab==="units" && <div className="panel table-panel"><div className="toolbar"><strong>{new Set(catalog.map(p=>unitOf(p.name))).size} units of measure</strong></div><DataTable headers={["UNIT","PRODUCTS","EXAMPLE","STATUS"]} rows={Array.from(new Set(catalog.map(p=>unitOf(p.name)))).sort().map(u=>{const ps=catalog.filter(p=>unitOf(p.name)===u);return [u,String(ps.length),ps[0].name,"Active"];})}/></div>}
-  {tab==="variants" && <div className="panel empty-panel"><div className="empty"><strong>No product variants yet</strong><p>Variants let you sell one product in multiple sizes, packs, or colors.<br/>Add a product first, then create its variants here.</p><button className="primary-button" onClick={()=>{setTab("products");setAdding(true);}}><Plus size={16}/> Add a product</button></div></div>}
   {tab==="stock" && (canManage ? <StockAdjustment catalog={catalog} onAdjust={onAdjust} onDone={msg=>{setStockDone(msg);setVersion(v => v + 1);}}/> : <div className="panel empty-panel"><div className="empty"><strong>Managers only</strong><p>Ask a manager or administrator to record stock adjustments.</p></div></div>)}
   {stockDone && <p className="checkout-success success-banner stock-banner" role="status">{stockDone}</p>}
   {(adding||editing) && <ProductFormModal catalog={catalog} initial={editing} onClose={()=>{setAdding(false);setEditing(null);}} onSave={(p,done)=>saveProduct(p,done)}/>}
@@ -671,10 +682,32 @@ function ProductFormModal({ catalog, initial, onClose, onSave }: { catalog: Prod
   return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>{initial ? "Edit product" : "Add product"}</h2><button aria-label="Close product form" onClick={onClose}><X size={18}/></button></div><div className="form-grid"><label>Name<input autoFocus placeholder="e.g. Iced Green Tea 500ml" value={form.name} onChange={set("name")}/></label><label>SKU<input placeholder="Auto-generated" value={form.sku} onChange={set("sku")}/></label><label>Category<input placeholder="e.g. Beverages" list="category-options" value={form.category} onChange={set("category")}/><datalist id="category-options">{Array.from(new Set(catalog.map(p=>p.category))).map(c=><option key={c} value={c}/>)}</datalist></label><label>Price (USD)<input type="number" min="0.01" step="0.01" placeholder="0.00" value={form.price} onChange={set("price")}/></label><label>Cost (USD)<input type="number" min="0" step="0.01" placeholder="0.00" value={form.cost} onChange={set("cost")}/></label><label>Stock (units)<input type="number" min="0" placeholder="0" value={form.stock} onChange={set("stock")}/></label><div className="image-picker" style={{ gridColumn: "1 / -1" }}>{form.image?<img src={form.image} alt="Product preview"/>:<div className="image-placeholder"><Package size={22}/></div>}<div className="image-actions"><label className="outline-button image-label">Choose image<input type="file" accept="image/*" style={{ display: "none" }} onChange={e=>{pickImage(e.target.files?.[0]); e.target.value = "";}}/></label>{form.image&&<button type="button" className="outline-button" onClick={()=>{setForm(f=>({...f,image:""}));setError(null);}}>Remove</button>}</div></div></div>{error && <p className="field-error" role="alert">{error}</p>}<div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={submit}>{initial ? "Save changes" : "Add product"}</button></div></div></div>;
 }
 
-type SalesTab = "pos" | "history" | "returns" | "receipts";
+/** Stock page: live stock table with low-stock highlighting plus the adjustment form. */
+function StockPage({ catalog, canManage, onAdjust }: { catalog: Product[]; canManage: boolean; onAdjust: (sku: string, delta: number) => void }) {
+  const [done, setDone] = useState<string | null>(null);
+  const stockStatus = (stock: number) => stock === 0 ? ["Out of stock", "refunded"] as const : stock < 10 ? ["Low stock", "pending"] as const : ["Healthy", "paid"] as const;
+  return <>
+    <PageHeading title={pageInfo["Stock"].title} sub={pageInfo["Stock"].subtitle}/>
+    {done && <p className="checkout-success success-banner" role="status">{done}</p>}
+    <div className="stock-grid">
+      <div className="panel table-panel">
+        <div className="toolbar"><strong>{catalog.length} products</strong></div>
+        <div className="table-wrap"><table><thead><tr>{["PRODUCT","SKU","CATEGORY","STOCK","VALUE","STATUS"].map((h,i)=><th key={i}>{h}</th>)}</tr></thead>
+        <tbody>{catalog.map(p=>{const [label,tone]=stockStatus(p.stock);return <tr key={p.sku}>
+          <td><strong>{p.name}</strong></td><td>{p.sku}</td><td>{p.category}</td><td>{p.stock} units</td><td>{money(p.price*p.stock)}</td>
+          <td><span className={`status ${tone}`}>{label}</span></td>
+        </tr>;})}</tbody></table></div>
+      </div>
+      {canManage ? <StockAdjustment catalog={catalog} onAdjust={onAdjust} onDone={setDone}/> : <div className="panel empty-panel"><div className="empty"><strong>Managers only</strong><p>Ask a manager or administrator to record stock adjustments.</p></div></div>}
+    </div>
+  </>;
+}
 
-function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, receiptFooter, currency, role }: { catalog: Product[]; sales: Sale[]; onRecord: (lines: SaleLine[], payment: SalePayment, done?: (ok: boolean, sale?: Sale) => void) => void; onRefund: (id: string, reason: string, done?: (ok: boolean) => void) => void; storeName: string; storeLocation: string; receiptFooter: string; currency: string; role: StaffRole }) {
-  const [tab, setTab] = useState<SalesTab>("pos");
+type SalesTab = "pos" | "history" | "returns";
+
+function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, receiptFooter, currency, role, initialTab }: { catalog: Product[]; sales: Sale[]; onRecord: (lines: SaleLine[], payment: SalePayment, done?: (ok: boolean, sale?: Sale) => void) => void; onRefund: (id: string, reason: string, done?: (ok: boolean) => void) => void; storeName: string; storeLocation: string; receiptFooter: string; currency: string; role: StaffRole; initialTab: SalesTab }) {
+  const [tab, setTab] = useState<SalesTab>(initialTab);
+  const [cardsView, setCardsView] = useState(false);
   const [historyQuery, setHistoryQuery] = useState("");
   const [cart, setCart] = useState<SaleLine[]>([]);
   const [productQuery, setProductQuery] = useState("");
@@ -706,17 +739,11 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
     });
   };
 
-  return <><PageHeading title="Sales" sub="Create sales and review payment activity" action="Sales history" onAction={()=>switchTab("history")}/><div className="subnav">
-    <button className={`tab ${tab==="pos"?"active":""}`} onClick={()=>switchTab("pos")}>New sale / POS</button>
-    <button className={`tab ${tab==="history"?"active":""}`} onClick={()=>switchTab("history")}>Sales history</button>
-    <button className={`tab ${tab==="returns"?"active":""}`} onClick={()=>switchTab("returns")}>Returns / refunds</button>
-    <button className={`tab ${tab==="receipts"?"active":""}`} onClick={()=>switchTab("receipts")}>Receipts</button>
-  </div>
+  return <><PageHeading title={pageInfo[tab === "pos" ? "POS / New Sale" : tab === "history" ? "Transactions" : "Returns & Refunds"].title} sub={pageInfo[tab === "pos" ? "POS / New Sale" : tab === "history" ? "Transactions" : "Returns & Refunds"].subtitle}/>
   {refundDone && <p className="checkout-success success-banner" role="status">Refund for {refundDone} recorded successfully.</p>}
   {tab==="pos" && <div className="pos-layout"><div className="panel product-picker"><div className="toolbar"><h2>Choose products</h2><div className="filter"><Search size={15}/><input value={productQuery} onChange={e=>setProductQuery(e.target.value)} placeholder="Search products"/></div></div><div className="picker-grid">{visibleProducts.map(p=>{const inCart=cart.find(l=>l.sku===p.sku)?.qty??0;const left=p.stock-inCart;return <button key={p.sku} className="picker-card" disabled={left<=0} onClick={()=>{setJustCheckedOut(null);setCart(c=>c.some(l=>l.sku===p.sku)?c.map(l=>l.sku===p.sku?{...l,qty:l.qty+1}:l):[...c,toLine(p)]);}}><div className="picker-thumb">{p.image?<img src={p.image} alt=""/>:<div className="product-placeholder"><Package size={20}/></div>}</div><strong>{p.name}</strong><span>{money(p.price)} · {left<=0?"none left":"in stock: "+left}</span></button>;})}{visibleProducts.length===0&&<div className="empty">No products match your search.</div>}</div></div><div className="panel cart-panel"><div className="panel-header"><h2>Current sale</h2><span className="status paid">{cart.reduce((n,l)=>n+l.qty,0)} items</span></div>{cart.length===0?<div className="empty">Your cart is empty</div>:<div className="cart-lines">{cart.map((l,i)=><div className="cart-line" key={l.sku}><div><strong>{l.name}</strong><span>{money(l.price)} × {l.qty}</span></div><button aria-label={`Remove ${l.name}`} onClick={()=>setCart(c=>c.filter((_,idx)=>idx!==i))}><X size={14}/></button></div>)}</div>}<div className="cart-total"><span>Subtotal</span><strong>{money(total)}</strong></div>{justCheckedOut&&<p className="checkout-success" role="status">Sale {justCheckedOut.id} recorded.{justCheckedOut.changeDue ? ` Change due ${money(justCheckedOut.changeDue)}.` : ""}</p>}<button className="primary-button checkout" disabled={cart.length===0||busy} onClick={openPayment}>{busy ? "Charging…" : `Charge ${money(total)}`}</button></div></div>}
-  {tab==="history" && <div className="panel table-panel"><div className="toolbar"><strong>{historyQuery ? `${historyMatches.length} of ${sales.length} sales` : `${sales.length} sales`}</strong><div className="filter"><Search size={15}/><input placeholder="Search invoice or customer" value={historyQuery} onChange={e=>setHistoryQuery(e.target.value)}/>{historyQuery&&<button className="filter-clear" aria-label="Clear sales search" onClick={()=>setHistoryQuery("")}><X size={13}/></button>}</div></div>{historyMatches.length===0?<div className="empty">No sales match your search.</div>:<SalesTable sales={historyMatches} onView={setViewing} onRefund={startRefund}/>}</div>}
+  {tab==="history" && <div className="panel table-panel"><div className="toolbar"><strong>{historyQuery ? `${historyMatches.length} of ${sales.length} sales` : `${sales.length} sales`}</strong><div className="filter"><Search size={15}/><input placeholder="Search invoice or customer" value={historyQuery} onChange={e=>setHistoryQuery(e.target.value)}/>{historyQuery&&<button className="filter-clear" aria-label="Clear sales search" onClick={()=>setHistoryQuery("")}><X size={13}/></button>}</div><button className="outline-button" onClick={()=>setCardsView(v=>!v)}>{cardsView?"Table view":"Card view"}</button></div>{historyMatches.length===0?<div className="empty">No sales match your search.</div>:cardsView?<div className="receipts-grid">{historyMatches.map(s=><div className="panel receipt-card" key={s.id}><div className="receipt-card-head"><strong>{s.id}</strong><span className={`status ${statusClass(s.status)}`}>{s.status}</span></div><p>{s.customer} · {s.date}</p><div className="receipt-card-total"><span>{itemCount(s)} items</span><strong>{money(saleTotal(s))}</strong></div><button className="outline-button" onClick={()=>setViewing(s)}>View receipt</button></div>)}</div>:<SalesTable sales={historyMatches} onView={setViewing} onRefund={startRefund}/>}</div>}
   {tab==="returns" && <><div className="panel table-panel"><div className="toolbar"><strong>Refundable sales</strong><div className="filter"><Search size={15}/><input placeholder="Search sales" readOnly/></div><button className="select-button">All payments <ChevronDown size={14}/></button></div>{refundable.length===0?<div className="empty">Nothing left to refund.</div>:<SalesTable sales={refundable} onView={setViewing} onRefund={startRefund}/>}</div><div className="panel table-panel"><div className="toolbar"><strong>{refunds.length} refunds</strong></div>{refunds.length===0?<div className="empty">No refunds yet.</div>:<DataTable headers={["INVOICE","CUSTOMER","DATE","REFUNDED","REASON","STATUS"]} rows={refunds.map(s=>[s.id,s.customer,s.date,money(saleTotal(s)),s.refundReason||"—","Refunded"])}/>}</div></>}
-  {tab==="receipts" && <div className="receipts-grid">{sales.map(s=><div className="panel receipt-card" key={s.id}><div className="receipt-card-head"><strong>{s.id}</strong><span className={`status ${statusClass(s.status)}`}>{s.status}</span></div><p>{s.customer} · {s.date}</p><div className="receipt-card-total"><span>{itemCount(s)} items</span><strong>{money(saleTotal(s))}</strong></div><button className="outline-button" onClick={()=>setViewing(s)}>View receipt</button></div>)}</div>}
   {viewing && <ReceiptModal sale={viewing} onClose={()=>setViewing(null)} onRefund={startRefund} storeName={storeName} storeLocation={storeLocation} receiptFooter={receiptFooter} currency={currency}/>}
   {paying && <PaymentModal total={total} itemCount={cart.reduce((n,l)=>n+l.qty,0)} currency={currency} role={role} busy={busy} onClose={()=>setPaying(false)} onConfirm={doCheckout}/>}
   {refunding && <div className="modal-backdrop" onClick={()=>setRefunding(null)}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>Refund {refunding.id}</h2><button aria-label="Close refund dialog" onClick={()=>setRefunding(null)}><X size={18}/></button></div><p className="refund-summary">Refunding <strong>{money(saleTotal(refunding))}</strong> ({itemCount(refunding)} items) from <strong>{refunding.customer}</strong> back via {refunding.payment}.</p><label>Reason<textarea autoFocus placeholder="e.g. Damaged goods, customer changed their mind" value={refundNote} onChange={e=>setRefundNote(e.target.value)}/></label><div className="modal-actions"><button className="outline-button" onClick={()=>setRefunding(null)}>Cancel</button><button className="primary-button" disabled={busy} onClick={confirmRefund}>{busy ? "Refunding…" : `Confirm refund ${money(saleTotal(refunding))}`}</button></div></div></div>}</>;
@@ -934,6 +961,7 @@ function Reports({ sales, catalog }: { sales: Sale[]; catalog: Product[] }) {
   </>;
 }
 
+/** Cash Register page: the Finance overview — income, refunds, net, pending, and the transaction ledger. */
 function Finance({ sales }: { sales: Sale[] }) {
   const [txnQuery, setTxnQuery] = useState("");
   const [method, setMethod] = useState("All payments");
@@ -949,7 +977,7 @@ function Finance({ sales }: { sales: Sale[] }) {
   const methods = ["All payments", ...Array.from(new Set(sales.map(s => s.payment)))];
   const matches = sales.filter(s => `${s.id} ${s.customer} ${s.payment}`.toLowerCase().includes(txnQuery.toLowerCase()) && (method === "All payments" || s.payment === method));
 
-  return <><PageHeading title="Finance" sub="Keep track of income, expenses, and cash flow"/>
+  return <><PageHeading title={pageInfo["Cash Register"].title} sub={pageInfo["Cash Register"].subtitle}/>
     <section className="stats-grid">
       <Stat label="Gross income" value={money(income)} change={`${counted.length} paid orders`} icon={CircleDollarSign} tone="green"/>
       <Stat label="Refunded" value={money(refunded)} change={`${refunds.length} refunds`} icon={CreditCard} tone="orange" negative={refunds.length>0}/>
