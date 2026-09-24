@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   ensureSeeded, requireStaff, getRegisterShiftsCollection, getCashMovementsCollection,
-  getSalesCollection, readSettings, type StoredSale,
+  getSalesCollection, readSettings, logActivity, type StoredSale,
 } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
@@ -84,6 +84,7 @@ export async function POST(request: Request) {
         _id: id, id, openedBy: by, openedAt: new Date().toISOString(),
         openingFloat: amount, note: String(body.note ?? "").slice(0, 200),
       });
+      void logActivity("register.open", `${id} opened with float $${amount.toFixed(2)}`, by);
       return NextResponse.json({ ok: true, id, openingFloat: amount }, { status: 201 });
     }
 
@@ -122,6 +123,7 @@ export async function POST(request: Request) {
         { _id: open._id, closedAt: { $exists: false } }, // guard: no double close
         { $set: { closedAt, closedBy: by, closingCount: count, expectedCash: expected, variance: money2(count - expected), note: String(body.note ?? "").slice(0, 200) } },
       );
+      void logActivity("register.close", `${open.id} closed — counted $${count.toFixed(2)} vs expected $${expected.toFixed(2)} (variance $${money2(count - expected).toFixed(2)})`, by);
       return NextResponse.json({ ok: true, id: open.id, expectedCash: expected, closingCount: count, variance: money2(count - expected) });
     }
 

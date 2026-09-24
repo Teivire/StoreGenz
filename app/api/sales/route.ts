@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logActivity } from "@/lib/db";
 import { backfillCreatedAt, ensureSeeded, getMovementsCollection, getProductsCollection, getSalesCollection, normalizeLegacySales, requireStaff, type Sale, type SaleLine, type SaleStatus } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
@@ -161,6 +162,7 @@ export async function POST(request: Request) {
           by: sale.servedBy ?? "system", refId: sale.id,
           createdAt: new Date().toISOString(),
         })))).catch(() => {});
+        void logActivity("sale.create", `${sale.id} — ${sale.payment} sale to ${sale.customer}, $${(sale.saleTotal ?? 0).toFixed(2)}`, sale.servedBy ?? "system");
         return NextResponse.json(sale, { status: 201 });
       } catch (e) {
         const isDup = (e as { code?: number }).code === 11000;

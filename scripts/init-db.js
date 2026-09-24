@@ -325,6 +325,47 @@ const validators = {
       }
     }
   },
+  departments: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "id", "name", "description", "createdBy", "createdAt"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        id: { bsonType: "string", minLength: 1 },
+        name: { bsonType: "string", minLength: 1, maxLength: 60 },
+        description: { bsonType: "string", maxLength: 200 },
+        createdBy: { bsonType: "string" },
+        createdAt: { bsonType: "string" }
+      }
+    }
+  },
+  attendance: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "id", "staffName", "clockIn"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        id: { bsonType: "string", minLength: 1 },
+        staffName: { bsonType: "string", minLength: 1 },
+        clockIn: { bsonType: "string" },
+        clockOut: { bsonType: "string" },
+        note: { bsonType: "string", maxLength: 200 }
+      }
+    }
+  },
+  activity_log: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "action", "detail", "by", "createdAt"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        action: { bsonType: "string", minLength: 1, maxLength: 60 },
+        detail: { bsonType: "string", maxLength: 200 },
+        by: { bsonType: "string", minLength: 1 },
+        createdAt: { bsonType: "string" }
+      }
+    }
+  },
   register_shifts: {
     $jsonSchema: {
       bsonType: "object",
@@ -431,6 +472,16 @@ const indexes = {
   ],
   cash_movements: [
     { key: { shiftId: 1, createdAt: -1 }, name: "shiftId_1_createdAt_-1" }
+  ],
+  departments: [
+    { key: { name: 1 }, name: "name_1" }
+  ],
+  attendance: [
+    { key: { clockIn: -1 }, name: "clockIn_-1" },
+    { key: { staffName: 1, clockIn: -1 }, name: "staffName_1_clockIn_-1" }
+  ],
+  activity_log: [
+    { key: { createdAt: -1 }, name: "createdAt_-1" }
   ]
 };
 

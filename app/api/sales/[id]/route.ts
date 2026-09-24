@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireStaff, ensureSeeded, getMovementsCollection, getProductsCollection, getSalesCollection } from "@/lib/db";
+import { requireStaff, ensureSeeded, getMovementsCollection, getProductsCollection, getSalesCollection, logActivity } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -39,6 +39,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       })))).catch(() => {});
     }
 
+    void logActivity("sale.refund", `${existing.id} refunded — ${reason || "no reason given"}`, await requireStaff(request, "Cashier").catch(() => "system"));
     return NextResponse.json({ ok: true });
   } catch (e) {
     const status = (e as { status?: number }).status;

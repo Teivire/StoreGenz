@@ -19,7 +19,7 @@ const seedProducts: Product[] = [
 const nextSku = (catalog: Product[]) => `SKU-${String(Math.floor(10000 + Math.random() * 90000))}`;
 
 type StaffRole = "Administrator" | "Manager" | "Cashier";
-type StaffMember = { name: string; role: StaffRole; permissions: string; status: "Active" | "Inactive" };
+type StaffMember = { name: string; role: StaffRole; permissions: string; status: "Active" | "Inactive"; department?: string };
 type Session = { name: string; role: StaffRole };
 type StoreSettings = { name: string; location: string; receiptFooter: string; currency: string; paymentMethods?: MethodSetting[] };
 const DEFAULT_SETTINGS: StoreSettings = { name: "StoreGenz", location: "Phnom Penh", receiptFooter: "", currency: "$" };
@@ -89,6 +89,10 @@ type MethodSetting = { name: string; enabled: boolean };
 type RecurringLite = { id: string; category: string; amount: number; frequency: "weekly" | "monthly"; note: string; nextRun: string; lastRun?: string; active: boolean; createdBy: string; createdAt: string };
 type ShiftLite = { id: string; openedBy: string; openedAt: string; openingFloat: number; closedBy?: string; closedAt?: string; closingCount?: number; expectedCash?: number; variance?: number; note?: string; movements: { id: string; direction: "in" | "out"; amount: number; reason: string; by: string; createdAt: string }[] };
 type RegisterData = { open: ShiftLite | null; history: ShiftLite[]; movements: { id: string; shiftId: string; direction: "in" | "out"; amount: number; reason: string; by: string; createdAt: string }[]; defaults: { openingFloat: number; varianceAlert: number } };
+type DepartmentLite = { id: string; name: string; description: string; createdBy: string; createdAt: string };
+type AttendanceLite = { id: string; staffName: string; clockIn: string; clockOut?: string };
+type ActivityLite = { action: string; detail: string; by: string; createdAt: string };
+type StaffTab = "All Staff" | "Add Staff" | "Roles & Permissions" | "Departments" | "Shifts" | "Attendance" | "Staff Performance" | "Activity Log";
 
 /** Shared register state: open shift, history, defaults. */
 function useRegister() {
@@ -1601,7 +1605,7 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && query.trim()) { e.preventDefault(); const t = query.trim(); if (/^#?inv/i.test(t)) { setOrderSearch(t.replace(/^#/, "")); navigate("Transactions"); } else { navigate("Products"); setQuery(t); } } }} placeholder="Search products, orders..."/><kbd className="search-kbd">Ctrl K</kbd></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} methods={(settings.paymentMethods ?? []).filter(m => m.enabled).map(m => m.name)}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Payments" ? <PaymentsHub sales={sales} role={session.role}/> : active === "Expenses" ? <ExpensesHub role={session.role}/> : active === "Cash Register" ? <RegisterHub sales={sales} role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} methods={(settings.paymentMethods ?? []).filter(m => m.enabled).map(m => m.name)}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Payments" ? <PaymentsHub sales={sales} role={session.role}/> : active === "Expenses" ? <ExpensesHub role={session.role}/> : active === "Cash Register" ? <RegisterHub sales={sales} role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" || active === "Roles & Permissions" ? <StaffHub key={active} staff={staff} sales={sales} role={session.role} currentUser={session.name} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} initialTab={active === "Roles & Permissions" ? "Roles & Permissions" : undefined}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }
@@ -2192,6 +2196,192 @@ function ReceiptModal({ sale, onClose, onRefund, storeName, storeLocation, recei
 
 const ROLES = ["Administrator", "Manager", "Cashier"] as const;
 const PERMS = ["Full access", "POS + inventory", "POS access"] as const;
+
+/** Staff hub: 8 views over the roster, departments, attendance, and the audit trail. */
+function StaffHub({ staff, sales, role, currentUser, query, onQuery, onAdd, onUpdate, onDelete, initialTab }: {
+  staff: StaffMember[]; sales: Sale[]; role: StaffRole; currentUser: string; query: string; onQuery: (q: string) => void;
+  onAdd: (m: StaffMember, pin: string, done?: (ok: boolean) => void) => void;
+  onUpdate: (name: string, patch: Partial<StaffMember> & { pin?: string }, done?: (ok: boolean) => void) => void;
+  onDelete: (name: string, done?: (ok: boolean) => void) => void; initialTab?: StaffTab;
+}) {
+  const tabs = ["All Staff", "Add Staff", "Roles & Permissions", "Departments", "Shifts", "Attendance", "Staff Performance", "Activity Log"] as const;
+  const [tab, setTab] = useState<StaffTab>(initialTab ?? "All Staff");
+  const [adding, setAdding] = useState(false);
+  const [departments, setDepartments] = useState<DepartmentLite[] | null>(null);
+  const [attendance, setAttendance] = useState<AttendanceLite[] | null>(null);
+  const [activity, setActivity] = useState<ActivityLite[] | null>(null);
+  const [shifts, setShifts] = useState<ShiftLite[] | null>(null);
+  const loadStaffData = useCallback(() => {
+    fetch("/api/departments").then(r => r.ok ? r.json() : Promise.reject()).then(d => setDepartments(d as DepartmentLite[])).catch(() => setDepartments([]));
+    fetch("/api/attendance?limit=100").then(r => r.ok ? r.json() : Promise.reject()).then(d => setAttendance(d as AttendanceLite[])).catch(() => setAttendance([]));
+    fetch("/api/activity?limit=150").then(r => r.ok ? r.json() : Promise.reject()).then(d => setActivity(d as ActivityLite[])).catch(() => setActivity([]));
+    fetch("/api/register").then(r => r.ok ? r.json() : Promise.reject()).then(d => setShifts((d as { history?: ShiftLite[] }).history ?? [])).catch(() => setShifts([]));
+  }, []);
+  useEffect(loadStaffData, [loadStaffData]);
+  const canManageStaff = CAN.manageStaff(role);
+  const when = (iso?: string) => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
+  const showProfit = canViewMoney(role);
+  const perf = new Map<string, { orders: number; total: number; profit: number }>();
+  for (const s of sales.filter(x => x.status !== "Refunded")) {
+    const who = s.servedBy ?? "Unattributed";
+    const row = perf.get(who) ?? { orders: 0, total: 0, profit: 0 };
+    row.orders++;
+    row.total = Math.round((row.total + saleTotal(s)) * 100) / 100;
+    row.profit = Math.round((row.profit + saleTotal(s) - lineCost(s)) * 100) / 100;
+    perf.set(who, row);
+  }
+  const perfRows = Array.from(perf.entries()).sort((a, b) => b[1].total - a[1].total);
+  return <>
+    <PageHeading title="Staff" sub="Team roster, departments, shifts, and the audit trail"/>
+    <div className="subnav subnav-wrap">
+      {tabs.map(t => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t}</button>)}
+    </div>
+    {tab === "All Staff" && <StaffPage staff={staff} query={query} onQuery={onQuery} onAdd={onAdd} onUpdate={onUpdate} onDelete={onDelete} canManage={canManageStaff} currentUser={currentUser}/>}
+    {tab === "Add Staff" && (canManageStaff
+      ? <div className="panel empty-panel"><div className="empty"><strong>Add a team member</strong><p>Create a staff account with a role, a permission set, and a login PIN. New members can sign in at the register right away.</p><button className="primary-button" onClick={() => setAdding(true)}><Plus size={15}/> Open add-staff form</button></div></div>
+      : <div className="panel empty-panel"><div className="empty"><strong>Administrators only</strong><p>Ask an administrator to add new staff members.</p></div></div>)}
+    {tab === "Roles & Permissions" && <>
+      <div className="panel table-panel"><div className="toolbar"><strong>Role levels</strong></div>
+        <DataTable headers={["ROLE", "SCOPE"]} rows={[
+          ["Administrator", "Everything a manager can do, plus staff accounts, PINs, departments, and store settings."],
+          ["Manager", "Runs the floor — inventory, purchases, suppliers, expenses, the register, reports, and the activity log."],
+          ["Cashier", "Sells at the POS, takes payments, processes refunds, and clocks in and out."]
+        ]}/>
+      </div>
+      <div className="panel table-panel"><div className="toolbar"><strong>Capability matrix</strong><span className="you-chip">enforced server-side by requireStaff()</span></div>
+        <DataTable headers={["CAPABILITY", "MINIMUM ROLE"]} rows={[
+          ["Sell and take payments at the POS", "All roles"],
+          ["Refund sales", "All roles"],
+          ["Products, categories, stock, transfers", "Manager"],
+          ["Purchases, suppliers, expenses", "Manager"],
+          ["Register shifts and cash movements", "Manager"],
+          ["Departments (create / delete)", "Manager"],
+          ["Reports and the activity log", "Manager"],
+          ["Attendance clock-in and history", "All roles"],
+          ["Staff accounts, roles, and PINs", "Administrator"],
+          ["Store settings", "Administrator"]
+        ]}/>
+      </div>
+    </>}
+    {tab === "Departments" && <DepartmentsView departments={departments} staff={staff} role={role} onUpdate={onUpdate} reload={loadStaffData}/>}
+    {tab === "Shifts" && <div className="panel table-panel"><div className="toolbar"><strong>{shifts ? `${shifts.length} closed register shift${shifts.length === 1 ? "" : "s"}` : "Loading shifts…"}</strong><span className="you-chip">shared with the Cash Register hub</span></div>
+      {!shifts ? <div className="empty">Loading…</div> : shifts.length === 0 ? <div className="empty">No closed register shifts yet — open and close a shift from the Cash Register hub and the history lands here.</div>
+        : <DataTable headers={["SHIFT", "OPENED BY", "OPENED", "CLOSED", "FLOAT", "COUNTED", "VARIANCE"]} rows={[...shifts].sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? "")).map(s => [s.id, s.openedBy, when(s.openedAt), s.closedAt ? when(s.closedAt) : "—", money(s.openingFloat), money(s.closingCount ?? 0), money(s.variance ?? 0)])}/>}
+    </div>}
+    {tab === "Attendance" && <AttendanceView entries={attendance} selfName={currentUser} reload={loadStaffData}/>}
+    {tab === "Staff Performance" && <div className="panel table-panel"><div className="toolbar"><strong>Sales by team member</strong><span className="you-chip">live from recorded sales</span></div>
+      {perfRows.length === 0 ? <div className="empty">No sales yet — performance builds as the team sells.</div>
+        : <DataTable headers={showProfit ? ["STAFF", "ORDERS", "SALES", "PROFIT"] : ["STAFF", "ORDERS", "SALES"]} rows={perfRows.map(([who, r]) => showProfit ? [who, String(r.orders), money(r.total), money(r.profit)] : [who, String(r.orders), money(r.total)])}/>}
+    </div>}
+    {tab === "Activity Log" && (showProfit ? <div className="panel table-panel"><div className="toolbar"><strong>{activity ? `${activity.length} recent entries` : "Loading activity…"}</strong><span className="you-chip">newest first</span></div>
+      {!activity ? <div className="empty">Loading…</div> : activity.length === 0 ? <div className="empty">No activity recorded yet — sales, refunds, register shifts, and attendance will appear here.</div>
+        : <div className="table-wrap"><table><thead><tr>{["WHEN", "ACTION", "DETAIL", "BY"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+          {activity.map((a, i) => <tr key={i}><td>{when(a.createdAt)}</td><td><strong>{a.action}</strong></td><td>{a.detail}</td><td>{a.by}</td></tr>)}
+        </tbody></table></div>}
+    </div> : <div className="panel empty-panel"><div className="empty"><strong>Managers only</strong><p>The activity log is visible to managers and administrators.</p></div></div>)}
+    {adding && <StaffFormModal onClose={() => setAdding(false)} onSave={(m, pin, done) => onAdd(m, pin, ok => { if (ok) { setAdding(false); setTab("All Staff"); } else done(ok); })}/>}
+  </>;
+}
+
+/** Departments view: create, list with membership, assign staff, delete. */
+function DepartmentsView({ departments, staff, role, onUpdate, reload }: { departments: DepartmentLite[] | null; staff: StaffMember[]; role: StaffRole; onUpdate: (name: string, patch: Partial<StaffMember> & { pin?: string }, done?: (ok: boolean) => void) => void; reload: () => void }) {
+  const isManager = role === "Manager" || role === "Administrator";
+  const isAdmin = role === "Administrator";
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [assignFor, setAssignFor] = useState<StaffMember | null>(null);
+  const [assignTo, setAssignTo] = useState("");
+  const create = async () => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      const res = await fetch("/api/departments", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ name, description }) });
+      const d = await res.json() as { error?: string };
+      if (!res.ok) { setError(d.error ?? "Could not create the department."); return; }
+      setName(""); setDescription(""); reload();
+    } catch { setError("Could not reach the server."); }
+    finally { setBusy(false); }
+  };
+  const remove = async (dept: DepartmentLite) => {
+    setError(null);
+    try {
+      const res = await fetch(`/api/departments?id=${encodeURIComponent(dept.id)}`, { method: "DELETE", credentials: "same-origin" });
+      const d = await res.json() as { error?: string };
+      if (!res.ok) { setError(d.error ?? "Could not delete the department."); return; }
+      reload();
+    } catch { setError("Could not reach the server."); }
+  };
+  return <>
+    {isManager && <div className="panel purchase-form-panel"><div className="toolbar"><strong>New department</strong></div>
+      <div className="form-grid">
+        <label>Name<input placeholder="e.g. Sales floor" value={name} onChange={e => { setName(e.target.value); setError(null); }}/></label>
+        <label>Description (optional)<input placeholder="What this team covers" value={description} onChange={e => setDescription(e.target.value)}/></label>
+      </div>
+      {error && <p className="field-error" role="alert">{error}</p>}
+      <div className="modal-actions"><button className="primary-button" disabled={busy || !name.trim()} onClick={create}>Create department</button></div>
+    </div>}
+    {!isManager && error && <p className="field-error" role="alert">{error}</p>}
+    <div className="panel table-panel"><div className="toolbar"><strong>{departments ? `${departments.length} department${departments.length === 1 ? "" : "s"}` : "Loading departments…"}</strong></div>
+      {!departments ? <div className="empty">Loading…</div> : departments.length === 0 ? <div className="empty">No departments yet — create one above to start grouping the team.</div>
+        : <div className="table-wrap"><table><thead><tr>{["DEPARTMENT", "DESCRIPTION", "MEMBERS", ""].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+          {departments.map(d => { const members = staff.filter(m => m.department === d.name); return <tr key={d.id}>
+            <td><strong>{d.name}</strong></td><td>{d.description || "—"}</td>
+            <td>{members.length === 0 ? <span className="you-chip">none</span> : members.map(m => m.name).join(", ")}</td>
+            <td><div className="row-actions">
+              {isAdmin && <button className="text-button" onClick={() => { setAssignTo(d.name); setAssignFor(staff.find(m => !m.department) ?? staff[0] ?? null); setError(null); }}>Assign…</button>}
+              {isManager && <button className="text-button danger" onClick={() => remove(d)}>Delete</button>}
+              {!isManager && <span className="you-chip">view only</span>}
+            </div></td>
+          </tr>; })}
+        </tbody></table></div>}
+    </div>
+    {assignFor && <div className="modal-backdrop" onClick={() => setAssignFor(null)}><div className="modal" onClick={e => e.stopPropagation()}>
+      <div className="modal-header"><h2>Assign department</h2><button aria-label="Close assign dialog" onClick={() => setAssignFor(null)}><X size={18}/></button></div>
+      <div className="form-grid">
+        <label>Staff member<select value={assignFor.name} onChange={e => setAssignFor(staff.find(m => m.name === e.target.value) ?? null)}>{staff.map(m => <option key={m.name} value={m.name}>{m.name} — {m.role}</option>)}</select></label>
+        <label>Department<select value={assignTo} onChange={e => setAssignTo(e.target.value)}><option value="">(No department)</option>{(departments ?? []).map(d => <option key={d.id} value={d.name}>{d.name}</option>)}</select></label>
+      </div>
+      <div className="modal-actions"><button className="outline-button" onClick={() => setAssignFor(null)}>Cancel</button><button className="primary-button" onClick={() => { if (assignFor) onUpdate(assignFor.name, { department: assignTo }, ok => { if (ok) { setAssignFor(null); reload(); } else setError("Could not update the staff member."); }); }}>Save assignment</button></div>
+    </div></div>}
+  </>;
+}
+
+/** Attendance view: clock in/out for the signed-in member plus the shared history. */
+function AttendanceView({ entries, selfName, reload }: { entries: AttendanceLite[] | null; selfName: string; reload: () => void }) {
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const openEntry = (entries ?? []).find(e => e.staffName === selfName && !e.clockOut);
+  const act = async (action: "clockIn" | "clockOut") => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      const res = await fetch("/api/attendance", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ action }) });
+      const d = await res.json() as { error?: string };
+      if (!res.ok) { setError(d.error ?? "Attendance action failed."); return; }
+      reload();
+    } catch { setError("Could not reach the server."); }
+    finally { setBusy(false); }
+  };
+  const when = (iso?: string) => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
+  return <>
+    <div className="panel purchase-form-panel"><div className="toolbar"><strong>Your attendance{selfName ? ` — ${selfName}` : ""}</strong>{openEntry && <span className="you-chip">On shift since {new Date(openEntry.clockIn).toLocaleTimeString()}</span>}</div>
+      <div className="modal-actions">
+        <button className="primary-button" disabled={busy || !!openEntry} onClick={() => act("clockIn")}>Clock in</button>
+        <button className="outline-button" disabled={busy || !openEntry} onClick={() => act("clockOut")}>Clock out</button>
+      </div>
+      {error && <p className="field-error" role="alert">{error}</p>}
+    </div>
+    <div className="panel table-panel"><div className="toolbar"><strong>{entries ? `${entries.length} recent entries` : "Loading attendance…"}</strong><span className="you-chip">newest first</span></div>
+      {!entries ? <div className="empty">Loading…</div> : entries.length === 0 ? <div className="empty">No clock-ins recorded yet.</div>
+        : <div className="table-wrap"><table><thead><tr>{["STAFF", "CLOCK IN", "CLOCK OUT", "HOURS"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+          {entries.map(e => <tr key={e.id}><td><strong>{e.staffName}</strong></td><td>{when(e.clockIn)}</td><td>{e.clockOut ? when(e.clockOut) : "—"}</td>
+            <td>{e.clockOut ? <span className="status paid">{Math.round(((new Date(e.clockOut).getTime() - new Date(e.clockIn).getTime()) / 3600_000) * 100) / 100}h</span> : <span className="status pending">On shift</span>}</td></tr>)}
+        </tbody></table></div>}
+    </div>
+  </>;
+}
 
 function StaffPage({ staff, query, onQuery, onAdd, onUpdate, onDelete, canManage, currentUser }: { staff: StaffMember[]; query: string; onQuery: (q: string) => void; onAdd: (m: StaffMember, pin: string, done?: (ok: boolean) => void) => void; onUpdate: (name: string, patch: Partial<StaffMember> & { pin?: string }, done?: (ok: boolean) => void) => void; onDelete: (name: string, done?: (ok: boolean) => void) => void; canManage: boolean; currentUser: string }) {
   const [adding, setAdding] = useState(false);

@@ -4,8 +4,37 @@ export type Product = { name: string; sku: string; category: string; price: numb
 export type SaleLine = { name: string; sku: string; price: number; cost: number; qty: number };
 export type SaleStatus = "Paid" | "Pending" | "Refunded";
 export type StaffRole = "Administrator" | "Manager" | "Cashier";
-export type StaffMember = { name: string; role: StaffRole; permissions: string; status: "Active" | "Inactive" };
+export type StaffMember = { name: string; role: StaffRole; permissions: string; status: "Active" | "Inactive"; department?: string };
 export type StoredStaff = StaffMember & { _id: string; pin: string };
+
+/** Department: a staff grouping (Sales floor, Warehouse…) used by the Staff hub. */
+export type Department = {
+  id: string;            // slug
+  name: string;          // unique
+  description: string;
+  createdBy: string;
+  createdAt: string;
+};
+export type StoredDepartment = Department & { _id: string };
+
+/** Attendance: one document per clock-in; clockOut set when the shift ends. */
+export type AttendanceEntry = {
+  id: string;
+  staffName: string;
+  clockIn: string;       // ISO
+  clockOut?: string;     // ISO
+  note?: string;
+};
+export type StoredAttendance = AttendanceEntry & { _id: string };
+
+/** Activity log: append-only trail of consequential actions. */
+export type ActivityEntry = {
+  action: string;        // e.g. "sale.create", "refund", "staff.update"
+  detail: string;        // human-readable summary
+  by: string;            // staff name ("system" for boot jobs)
+  createdAt: string;     // ISO
+};
+export type StoredActivity = ActivityEntry & { _id: string };
 /** What the UI may see after login — never includes the PIN. */
 export type PublicStaff = { name: string; role: StaffRole; permissions: string; status: "Active" | "Inactive" };
 /** Public profile plus the server-side sign-in time of the active session. */
@@ -305,6 +334,33 @@ export async function getRecurringExpensesCollection() {
 
 export async function getRegisterShiftsCollection() {
   return (await getDb()).collection<StoredRegisterShift>("register_shifts");
+}
+
+export async function getDepartmentsCollection() {
+  return (await getDb()).collection<StoredDepartment>("departments");
+}
+
+export async function getAttendanceCollection() {
+  return (await getDb()).collection<StoredAttendance>("attendance");
+}
+
+export async function getActivityCollection() {
+  return (await getDb()).collection<StoredActivity>("activity_log");
+}
+
+/** Appends to the activity log. Best-effort and non-throwing: logging must never
+ *  break the business action it accompanies. Auto-ids keep call sites tiny. */
+export async function logActivity(action: string, detail: string, by: string): Promise<void> {
+  try {
+    const col = await getActivityCollection();
+    const doc = {
+      _id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      action, detail, by, createdAt: new Date().toISOString(),
+    };
+    await col.insertOne(doc);
+  } catch {
+    // ignore — logging is best-effort
+  }
 }
 
 export async function getCashMovementsCollection() {

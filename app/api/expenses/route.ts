@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensureSeeded, getExpensesCollection, requireStaff } from "@/lib/db";
+import { ensureSeeded, getExpensesCollection, requireStaff, logActivity } from "@/lib/db";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -42,6 +42,7 @@ export async function POST(request: Request) {
       id: `EXP-${next}`, date: date.toISOString(), category, amount, note, createdBy: by, createdAt: new Date().toISOString(),
     };
     await expenses.insertOne({ ...doc, _id: doc.id });
+    void logActivity("expense.create", `${doc.id} — ${category} $${amount.toFixed(2)}${note ? ` (${note})` : ""}`, by);
     return NextResponse.json(doc, { status: 201 });
   } catch (e) {
     const status = (e as { status?: number }).status;
