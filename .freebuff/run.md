@@ -58,6 +58,9 @@
 ## Auto-hide sidebar
 - Desktop default: the sidebar **auto-hides** (slides fully out; content takes the full width). Hovering the 18px invisible strip at the left edge (`.sidebar-hotzone`) or keyboard-focusing into it reveals the rail as a fixed **overlay peek** (no content reflow, soft shadow); it re-hides ~160ms after the pointer leaves (or focus moves out). Implementation: `sidebarMode` state (`"auto" | "pinned"`, `pos.sidebarMode` in localStorage — storing "pinned" wins; default is auto), `sidebarHover`/`peek` state with a 160ms hide timer in `app/page.tsx`; CSS block at the end of `globals.css` keyed off `.app-shell.sidebar-autohide`. Guardrails learned: (1) the peek rule must also match `.peek.collapsed` — the higher-specificity `.sidebar.autohide.collapsed{margin-left:-64px}` rule otherwise keeps a collapsed rail shifted off-screen while "peeking"; (2) the mode init effect runs in-place so first paint matches the stored preference; (3) mobile (≤760px) keeps the drawer/hamburger behavior untouched and the hotzone is disabled there. Toggle lives in the topbar (`PanelLeftClose`/`PanelLeftOpen` icon button, title explains the mode). Verified in preview: hidden rail + full-width content, hotzone hover → fixed overlay peek at left:0, focus reveal, auto re-hide, pin → always visible + survives reload, unpin → hidden again; `tsc --noEmit` clean.
 
+## Project flowchart
+- `docs/flowchart.html` — self-contained (no CDN) printable flowchart of the system: 7 sections (architecture layers, sign-in & RBAC, checkout with policy gates, refund + concurrency guarantees, held sales, dashboard analytics incl. the date-range rules post-fix, backups & boot jobs). View via any static server (`npx serve docs`) or open the file directly; print (Ctrl+P) gives a clean one-pager.
+
 ## Run the server
 ```
 npm run dev

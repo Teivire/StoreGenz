@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StoreGenz POS — Project Flowchart</title>
+<style>
+  :root{
+    --ink:#17212b; --muted:#718096; --line:#e8edf2; --green:#25a56a; --pale:#eaf8f1;
+    --blue:#4288c7; --bluepale:#eaf3fb; --orange:#d99242; --orangepale:#fff3e3;
+    --purple:#8c69c5; --purplepale:#f2edfb; --red:#de756b; --redpale:#fdeeed;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--ink);background:#f7f9fb;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.45}
+  .wrap{max-width:1180px;margin:0 auto;padding:34px 26px 60px}
+  header.hero{margin-bottom:26px}
+  .eyebrow{margin:0 0 6px;color:#9ca8b3;font-size:10px;font-weight:bold;letter-spacing:1.2px}
+  h1{margin:0;font-size:26px;letter-spacing:-.5px}
+  .sub{margin:6px 0 0;color:var(--muted);font-size:12.5px}
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 8px}
+  .toc a{display:inline-block;padding:7px 12px;background:#fff;border:1px solid var(--line);border-radius:7px;color:#475569;font-size:11.5px;font-weight:bold;text-decoration:none}
+  .toc a:hover{border-color:var(--green);color:var(--green)}
+  section{margin-top:34px}
+  h2{font-size:17px;margin:0 0 4px}
+  h2 .num{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:7px;background:var(--green);color:#fff;font-size:12px;margin-right:8px;vertical-align:-4px}
+  .lede{margin:2px 0 16px;color:var(--muted);font-size:12.5px}
+
+  .layers{display:grid;gap:12px}
+  .layer{display:grid;grid-template-columns:150px 1fr;gap:12px;align-items:stretch}
+  .layer-tag{display:flex;flex-direction:column;justify-content:center;padding:12px;border-radius:10px;font-weight:bold;font-size:12px}
+  .layer-tag small{font-weight:normal;opacity:.75;margin-top:3px}
+  .layer-body{display:flex;flex-wrap:wrap;gap:8px;align-content:center;padding:12px 14px;background:#fff;border:1px solid var(--line);border-radius:10px}
+  .chip{padding:6px 10px;border-radius:7px;font-size:11.5px;font-weight:bold;background:var(--pale);color:#168957}
+  .chip.b{background:var(--bluepale);color:#2c6ba0}
+  .chip.o{background:var(--orangepale);color:#b06f22}
+  .chip.p{background:var(--purplepale);color:#6a4ba3}
+  .chip.r{background:var(--redpale);color:#c0473a}
+  .chip.plain{background:#f1f5f8;color:#566575}
+  .down{display:flex;justify-content:center;padding:2px 0}
+  .down span{color:#9aa5af;font-size:15px}
+
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+  .flow{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px}
+  .flow h3{margin:0 0 3px;font-size:13.5px}
+  .flow .tagline{margin:0 0 14px;color:var(--muted);font-size:11px}
+  .steps{display:flex;flex-direction:column}
+  .step{display:flex;gap:10px;align-items:flex-start;position:relative;padding:0 0 16px 0}
+  .step:last-child{padding-bottom:0}
+  .step::before{content:"";position:absolute;left:12px;top:26px;bottom:-2px;width:2px;background:var(--line)}
+  .step:last-child::before{display:none}
+  .n{flex-shrink:0;display:grid;place-items:center;width:25px;height:25px;border-radius:50%;color:#fff;font-size:11px;font-weight:bold;z-index:1}
+  .n.g{background:var(--green)} .n.b{background:var(--blue)} .n.o{background:var(--orange)} .n.p{background:var(--purple)} .n.r{background:var(--red)}
+  .step .t{font-weight:bold;font-size:12px}
+  .step .d{color:var(--muted);font-size:11.5px;margin-top:1px}
+  .step code, .kv code, .note code{background:#f1f5f8;border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:10.5px;color:#334252}
+  .branch{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+  .br{border-radius:8px;padding:8px 10px;font-size:11px}
+  .br b{display:block;font-size:11px;margin-bottom:2px}
+  .br.ok{background:var(--pale);color:#168957}
+  .br.no{background:var(--redpale);color:#c0473a}
+
+  .rolegrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+  .role{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px}
+  .role h3{margin:0 0 2px;font-size:13px;display:flex;align-items:center;gap:8px}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .role .desc{margin:0 0 10px;color:var(--muted);font-size:11px}
+  .pill{display:inline-block;margin:2px 3px 0 0;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:bold;background:#f1f5f8;color:#566575}
+  .pill.hot{background:var(--pale);color:#168957}
+  .note{background:#fffaf0;border:1px solid #f8ecd2;border-radius:10px;padding:12px 14px;font-size:11.5px;color:#7a6330;margin-top:14px}
+  footer{margin-top:40px;color:#9aa5af;font-size:11px;text-align:center}
+  @media print{ body{background:#fff} .toc{display:none} section{break-inside:avoid-page} }
+  @media(max-width:640px){ .layer{grid-template-columns:1fr} .layer-tag{flex-direction:row;gap:10px;align-items:center} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <p class="eyebrow">STOREGENZ POS · NEXT.JS 14 (APP ROUTER) · MONGODB</p>
+  <h1>Project flowchart</h1>
+  <p class="sub">How the app is structured and how its main flows actually run — from login to checkout, refunds, held sales, dashboard analytics and backups. Every node below reflects real code in this repo.</p>
+  <nav class="toc">
+    <a href="#arch">1 · Architecture</a>
+    <a href="#auth">2 · Sign-in &amp; RBAC</a>
+    <a href="#checkout">3 · Checkout</a>
+    <a href="#refund">4 · Refund</a>
+    <a href="#held">5 · Held sales</a>
+    <a href="#dash">6 · Dashboard</a>
+    <a href="#ops">7 · Ops &amp; backups</a>
+  </nav>
+</header>
+
+<!-- ============================== 1. ARCHITECTURE ============================== -->
+<section id="arch">
+  <h2><span class="num">1</span>System architecture</h2>
+  <p class="lede">One big client component renders every hub; API routes enforce auth, RBAC and policy; MongoDB stores everything with <code>$jsonSchema</code> validators and indexes.</p>
+  <div class="layers">
+    <div class="layer">
+      <div class="layer-tag" style="background:var(--pale);color:#168957">Browser<small>app/page.tsx (client)</small></div>
+      <div class="layer-body">
+        <span class="chip">Login screen</span><span class="chip">Sidebar (auto-hide) + Topbar</span><span class="chip">Dashboard</span><span class="chip">POS hub ×5</span><span class="chip">Transactions ×11</span><span class="chip">Products / Stock / Purchases</span><span class="chip">Suppliers / Customers</span><span class="chip">Payments / Expenses / Cash Register</span><span class="chip">Reports</span><span class="chip">Staff / Roles / Departments</span><span class="chip">Settings ×17</span>
+      </div>
+    </div>
+    <div class="down"><span>▼ &nbsp;fetch · cookie session (HttpOnly <code>pos_session</code>) or X-Staff headers</span></div>
+    <div class="layer">
+      <div class="layer-tag" style="background:var(--bluepale);color:#2c6ba0">API routes<small>app/api/*</small></div>
+      <div class="layer-body">
+        <span class="chip b">auth/session</span><span class="chip b">sales · refunds</span><span class="chip b">held-sales</span><span class="chip b">products · categories · movements</span><span class="chip b">purchases · suppliers · supplier-payments</span><span class="chip b">customers · customer-payments</span><span class="chip b">expenses · recurring-expenses</span><span class="chip b">transfers · register</span><span class="chip b">staff · roles · attendance · departments</span><span class="chip b">settings · security · stores</span><span class="chip b">activity · backups</span>
+      </div>
+    </div>
+    <div class="down"><span>▼ &nbsp;requireStaff / requireCapability · validatePolicy · $jsonSchema</span></div>
+    <div class="layer">
+      <div class="layer-tag" style="background:var(--orangepale);color:#b06f22">lib/db.ts<small>shared server core</small></div>
+      <div class="layer-body">
+        <span class="chip o">MongoClient pool</span><span class="chip o">ensureSeeded (once per process)</span><span class="chip o">readSettings merge</span><span class="chip o">ROLE_SEEDS → capabilities</span><span class="chip o">logActivity</span><span class="chip o">backfillCreatedAt</span>
+      </div>
+    </div>
+    <div class="down"><span>▼</span></div>
+    <div class="layer">
+      <div class="layer-tag" style="background:#f1f5f8;color:#566575">MongoDB<small>storegenz</small></div>
+      <div class="layer-body">
+        <span class="chip plain">products</span><span class="chip plain">sales</span><span class="chip plain">held_sales</span><span class="chip plain">refunds→(sales docs)</span><span class="chip plain">movements</span><span class="chip plain">purchases</span><span class="chip plain">suppliers · supplier_payments</span><span class="chip plain">customers · customer_payments</span><span class="chip plain">expenses · recurring_expenses</span><span class="chip plain">stock_transfers</span><span class="chip plain">register_shifts · cash_movements</span><span class="chip plain">staff · roles · sessions · attendance</span><span class="chip plain">departments · stores</span><span class="chip plain">settings · activity_log</span>
+      </div>
+    </div>
+    <div class="down"><span>▼ &nbsp;side channels</span></div>
+    <div class="layer">
+      <div class="layer-tag" style="background:var(--purplepale);color:#6a4ba3">Jobs &amp; scripts<small>instrumentation.ts · scripts/</small></div>
+      <div class="layer-body">
+        <span class="chip p">Daily backup @ 02:00 (Task Scheduler)</span><span class="chip p">Boot backup if &gt;24h old (instrumentation)</span><span class="chip p">Recurring-expense generation on boot</span><span class="chip p">init-db.js — validators + indexes</span><span class="chip p">backup-db.js / restore-backup.js (child processes)</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 2. AUTH ============================== -->
+<section id="auth">
+  <h2><span class="num">2</span>Sign-in, sessions &amp; RBAC</h2>
+  <p class="lede">Every mutation is gated twice: valid active staff first, then a capability resolved live from the role's document — editing a role re-scopes members instantly.</p>
+  <div class="cols">
+    <div class="flow">
+      <h3>Browser sign-in</h3>
+      <p class="tagline">app/page.tsx → /api/auth/login → sessions</p>
+      <div class="steps">
+        <div class="step"><span class="n g">1</span><div><div class="t">Login screen</div><div class="d">Staff picks name + types PIN</div></div></div>
+        <div class="step"><span class="n g">2</span><div><div class="t"><code>POST /api/auth/login</code></div><div class="d">Name + PIN checked against <code>staff</code> (must be Active)</div></div></div>
+        <div class="step"><span class="n g">3</span><div><div class="t">Session document</div><div class="d"><code>sessions</code> row with 30-day expiry; HttpOnly cookie set</div></div></div>
+        <div class="step"><span class="n g">4</span><div><div class="t">Client boots</div><div class="d"><code>GET /api/auth/session</code> restores identity; all hubs load via <code>refreshAll()</code></div></div></div>
+        <div class="step"><span class="n g">5</span><div><div class="t">Sign out / force-out</div><div class="d"><code>DELETE</code> session; <code>/api/security</code> can wipe all sessions (caller survives)</div></div></div>
+      </div>
+    </div>
+    <div class="flow">
+      <h3>Request gating (every mutation)</h3>
+      <p class="tagline">lib/db.ts · requireStaff → requireCapability</p>
+      <div class="steps">
+        <div class="step"><span class="n b">1</span><div><div class="t">Who is calling?</div><div class="d">Cookie <code>pos_session</code> (browser) or <code>X-Staff-Name/Pin</code> headers (scripts)</div></div></div>
+        <div class="step"><span class="n b">2</span><div><div class="t">Valid + Active?</div><div class="d">No / expired / deactivated → <b>401</b></div></div></div>
+        <div class="step"><span class="n b">3</span><div><div class="t">Capability check</div><div class="d">Role doc resolved <i>live</i> on every request; missing → <b>403</b></div>
+          <div class="branch"><div class="br ok"><b>e.g. sell</b>any Active role — cashiers can sell &amp; refund</div><div class="br no"><b>e.g. settings.manage</b>Administrator only — Manager deliberately 403</div></div>
+        </div></div>
+        <div class="step"><span class="n b">4</span><div><div class="t">Handler runs</div><div class="d">11 capabilities: sell · inventory · purchases · suppliers · customers · finance · register · departments · reports · staff · settings</div></div></div>
+        <div class="step"><span class="n b">5</span><div><div class="t">Activity log</div><div class="d">Mutations append to <code>activity_log</code> (best-effort, never blocks)</div></div></div>
+      </div>
+    </div>
+    <div class="flow">
+      <h3>Roles at a glance</h3>
+      <p class="tagline">ROLE_SEEDS · editable in Staff → Roles &amp; Permissions</p>
+      <div class="rolegrid" style="grid-template-columns:1fr">
+        <div class="role" style="padding:12px"><h3><span class="dot" style="background:var(--green)"></span>Owner / Admin</h3><p class="desc">Everything — staff, roles, settings, backups, security.</p><span class="pill hot">all 11 caps</span></div>
+        <div class="role" style="padding:12px"><h3><span class="dot" style="background:var(--blue)"></span>Manager</h3><p class="desc">Runs the floor — inventory, purchasing, finance, reports.</p><span class="pill">9 caps</span><span class="pill" style="background:var(--redpale);color:#c0473a">no staff.manage</span><span class="pill" style="background:var(--redpale);color:#c0473a">no settings.manage</span></div>
+        <div class="role" style="padding:12px"><h3><span class="dot" style="background:var(--orange)"></span>Cashier</h3><p class="desc">Sells, takes payments, processes refunds, clocks in/out.</p><span class="pill">sell</span></div>
+        <div class="role" style="padding:12px"><h3><span class="dot" style="background:var(--purple)"></span>Custom roles</h3><p class="desc">Inventory Staff · Sales Staff · Accountant + your own.</p><span class="pill">checkbox matrix</span><span class="pill">instant re-scope</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 3. CHECKOUT ============================== -->
+<section id="checkout">
+  <h2><span class="num">3</span>Checkout flow (POS → sale)</h2>
+  <p class="lede">The heart of the system: cart → validated, policy-enforced, atomic sale with stock decrement and movement-ledger entry.</p>
+  <div class="cols">
+    <div class="flow">
+      <h3>Happy path</h3>
+      <p class="tagline">POS hub · New Sale tab</p>
+      <div class="steps">
+        <div class="step"><span class="n g">1</span><div><div class="t">Build cart</div><div class="d">Product picker (F2 search) or barcode-style SKU; live stock shown</div></div></div>
+        <div class="step"><span class="n g">2</span><div><div class="t">Charge (F4)</div><div class="d">Payment modal: method (from settings), cash tendered → change, discount %, customer</div></div></div>
+        <div class="step"><span class="n g">3</span><div><div class="t"><code>POST /api/sales</code></div><div class="d">Header/cookie auth → capability <code>sell</code></div></div></div>
+        <div class="step"><span class="n g">4</span><div><div class="t">Validate lines</div><div class="d">≥1 line, known SKUs, qty ≥ 1, prices snapshotted with product cost</div></div></div>
+        <div class="step"><span class="n g">5</span><div><div class="t">Atomic commit</div><div class="d">Invoice # from max+1, sale doc + per-product stock <code>$inc:{-qty}</code> + movement entries + loyalty accrual</div></div></div>
+        <div class="step"><span class="n g">6</span><div><div class="t">Receipt + refresh</div><div class="d">Receipt modal (tax line, footer); client re-hydrates sales &amp; catalog</div></div></div>
+      </div>
+    </div>
+    <div class="flow">
+      <h3>Policy gates (server-side, live from Settings)</h3>
+      <p class="tagline">settings → validatePolicy → checkout enforcement</p>
+      <div class="steps">
+        <div class="step"><span class="n o">A</span><div><div class="t">Discount cap</div><div class="d">discount &gt; maxDiscountPercent% of subtotal → <b>400</b> with cap in message</div></div></div>
+        <div class="step"><span class="n o">B</span><div><div class="t">Tax</div><div class="d">Exclusive: add round(base × rate). Inclusive: divide out rate/(1+rate). Snapshot <code>taxAmount</code> per sale</div></div></div>
+        <div class="step"><span class="n o">C</span><div><div class="t">Oversell policy</div><div class="d">allowNegativeStock=false → filter <code>stock:{$gte:qty}</code>, short → <b>409</b> no partial apply; true → sells through, stock goes negative</div></div></div>
+        <div class="step"><span class="n o">D</span><div><div class="t">Credit sales</div><div class="d">Payment "Credit" → status <b>Pending</b> (not income) until collected in Customers hub</div></div></div>
+        <div class="step"><span class="n o">E</span><div><div class="t">Loyalty</div><div class="d">Paid sale to known customer → points <code>$inc</code> floor(total × earnRate); Bronze/Silver/Gold tiers by lifetime points</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 4. REFUND ============================== -->
+<section id="refund">
+  <h2><span class="num">4</span>Refund flow</h2>
+  <p class="lede">Single-shot by design: stock returns once, double refunds conflict at both API and DB level.</p>
+  <div class="cols">
+    <div class="flow">
+      <h3>Refund steps</h3>
+      <p class="tagline">Returns &amp; Refunds tab → /api/sales/[id] PATCH</p>
+      <div class="steps">
+        <div class="step"><span class="n r">1</span><div><div class="t">Find sale</div><div class="d">Search invoice/customer in refundable list (Paid or Pending)</div></div></div>
+        <div class="step"><span class="n r">2</span><div><div class="t">Reason</div><div class="d">Mandatory reason stored on the sale doc</div></div></div>
+        <div class="step"><span class="n r">3</span><div><div class="t"><code>refundSale</code></div><div class="d">Any Active role; guard: status must not already be Refunded</div>
+          <div class="branch"><div class="br ok"><b>First refund</b>status → Refunded · stock <code>$inc:+qty</code> · movements logged · refundedAt stamped</div><div class="br no"><b>Repeat refund</b>API guard → <b>409</b> · unique partial index makes a race lose safely</div></div>
+        </div></div>
+        <div class="step"><span class="n r">4</span><div><div class="t">Money views update</div><div class="d">Dashboard refunds KPI, cash-register expected drawer (by refundedAt window), Payments → Refunds</div></div></div>
+      </div>
+    </div>
+    <div class="flow">
+      <h3>Concurrency guarantees</h3>
+      <p class="tagline">verified by npm run verify-concurrency</p>
+      <div class="steps">
+        <div class="step"><span class="n p">✓</span><div><div class="t">Distinct invoice numbers</div><div class="d">Concurrent checkouts never collide (#INV-n from max+1 inside the write path)</div></div></div>
+        <div class="step"><span class="n p">✓</span><div><div class="t">Exact stock decrement</div><div class="d">N concurrent sales of qty 1 on stock N → exactly 0 left, no oversell</div></div></div>
+        <div class="step"><span class="n p">✓</span><div><div class="t">Single-winner refunds</div><div class="d">Racing the same refund → 200 + two 409s, restocked exactly once</div></div></div>
+        <div class="step"><span class="n p">✓</span><div><div class="t">Self-cleaning suites</div><div class="d">verify-api (41 cases) &amp; verify-concurrency remove their scratch data</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 5. HELD ============================== -->
+<section id="held">
+  <h2><span class="num">5</span>Held / suspended sales</h2>
+  <p class="lede">Park a cart mid-transaction without touching stock — resume it on any register later.</p>
+  <div class="flow" style="max-width:640px">
+    <h3>Hold → resume → checkout</h3>
+    <p class="tagline">held_sales collection · /api/held-sales</p>
+    <div class="steps">
+      <div class="step"><span class="n g">1</span><div><div class="t">Hold sale (F8)</div><div class="d">Cart + optional note (≤140 chars) → <code>POST /api/held-sales</code> → id H-nnn, heldBy, heldAt. <b>No stock deducted.</b></div></div></div>
+      <div class="step"><span class="n g">2</span><div><div class="t">Held / Suspended tab</div><div class="d">Any staff can list holds (selling-level gate)</div></div></div>
+      <div class="step"><span class="n g">3</span><div><div class="t">Resume</div><div class="d"><code>PUT</code> returns the lines and deletes the hold — stock was never taken, so no inventory recheck needed; policy still applies at final checkout</div></div></div>
+      <div class="step"><span class="n g">4</span><div><div class="t">Discard</div><div class="d"><code>DELETE ?id=</code> drops the hold; sale.hold / resume / discard all logged</div></div></div>
+      <div class="step"><span class="n g">5</span><div><div class="t">Finish as normal sale</div><div class="d">Resumed cart goes through the standard checkout flow (step 3 above)</div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 6. DASHBOARD ============================== -->
+<section id="dash">
+  <h2><span class="num">6</span>Dashboard analytics flow</h2>
+  <p class="lede">One full-history fetch, filtered and aggregated entirely client-side — that's why the date filter responds instantly.</p>
+  <div class="cols">
+    <div class="flow">
+      <h3>Data → KPIs</h3>
+      <p class="tagline">refreshAll() → /api/sales?all=1 → Dashboard</p>
+      <div class="steps">
+        <div class="step"><span class="n b">1</span><div><div class="t">Hydrate full history</div><div class="d"><code>refreshAll()</code> fetches products, sales, staff, settings, roles in parallel (<code>?all=1</code> = full arrays)</div></div></div>
+        <div class="step"><span class="n b">2</span><div><div class="t">Filter chain</div><div class="d">Date range (Today/7/30/month/custom/all) → cashier → payment → per-line category. Refunds never count as revenue; Pending isn't income</div></div></div>
+        <div class="step"><span class="n b">3</span><div><div class="t">KPIs</div><div class="d">Sales, Orders, Refunds, Net sales, Gross profit + margin (profit visible to finance.manage only)</div></div></div>
+        <div class="step"><span class="n b">4</span><div><div class="t">Charts &amp; tables</div><div class="d">Trend bars with honest zero-fill per day/month, payment mix, top products, staff performance, low-stock list, recent transactions (real createdAt timestamps)</div></div></div>
+        <div class="step"><span class="n b">5</span><div><div class="t">Export</div><div class="d">CSV / Excel of the currently filtered view; PDF via print</div></div></div>
+      </div>
+    </div>
+    <div class="flow">
+      <h3>Date-range rules (post-fix)</h3>
+      <p class="tagline">the "filter not responding" bug, documented</p>
+      <div class="steps">
+        <div class="step"><span class="n o">1</span><div><div class="t">Presets</div><div class="d">Today · Last 7/30 days · This month · All time — windows computed from local midnight</div></div></div>
+        <div class="step"><span class="n o">2</span><div><div class="t">Custom range</div><div class="d">From/To date pickers; &gt;45 days auto-switches trend to monthly buckets</div></div></div>
+        <div class="step"><span class="n o">3</span><div><div class="t">Empty custom ≠ all-time</div><div class="d">Invalid/empty custom range stays <b>empty</b> ($0 / 0 rows) — it used to silently widen to all time, which made the filter look dead</div></div></div>
+        <div class="step"><span class="n o">4</span><div><div class="t">Filtering key</div><div class="d">Everything filters on <code>createdAt</code> (ISO timestamp), never on the display <code>date</code> string</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 7. OPS ============================== -->
+<section id="ops">
+  <h2><span class="num">7</span>Operations: backups, jobs &amp; data integrity</h2>
+  <p class="lede">Safety nets run outside the request path so a busy POS night never waits on them.</p>
+  <div class="cols">
+    <div class="flow">
+      <h3>Backup &amp; restore</h3>
+      <p class="tagline">scripts/backup-db.js · restore-backup.js · /api/backups</p>
+      <div class="steps">
+        <div class="step"><span class="n p">1</span><div><div class="t">Automatic</div><div class="d">On boot, <code>instrumentation.ts</code> backs up if the newest file is &gt;24h old (never blocks startup)</div></div></div>
+        <div class="step"><span class="n p">2</span><div><div class="t">Scheduled</div><div class="d">Windows Task Scheduler "StoreGenz daily backup" runs <code>npm run backup</code> at 02:00</div></div></div>
+        <div class="step"><span class="n p">3</span><div><div class="t">Manual / from UI</div><div class="d">Settings → Backup &amp; Data → Back-up-now (<code>settings.manage</code>); route spawns the script as a <b>child process</b> (webpack can't interop its CJS imports)</div></div></div>
+        <div class="step"><span class="n p">4</span><div><div class="t">Retention</div><div class="d">Every backup prunes <code>backups/</code> to the 30 newest JSON exports</div></div></div>
+        <div class="step"><span class="n p">5</span><div><div class="t">Restore</div><div class="d"><code>npm run restore -- &lt;file&gt; --yes</code> or UI PUT with confirm phrase; date fields re-typed from ISO strings</div></div></div>
+      </div>
+    </div>
+    <div class="flow">
+      <h3>Boot &amp; integrity jobs</h3>
+      <p class="tagline">ensureSeeded · init-db.js · recurring expenses</p>
+      <div class="steps">
+        <div class="step"><span class="n g">1</span><div><div class="t">ensureSeeded (once per process)</div><div class="d">Creates validators/indexes if missing, seeds roles, ST-001 store, demo staff, settings, sample catalog/sales when empty; failed seed retries instead of 503-ing forever</div></div></div>
+        <div class="step"><span class="n g">2</span><div><div class="t">init-db.js (versioned truth)</div><div class="d">Idempotent: collMod validators for every collection, full-entry index specs (the spread bug that silently dropped <code>unique</code> is fixed)</div></div></div>
+        <div class="step"><span class="n g">3</span><div><div class="t">Movement ledger</div><div class="d">Every stock change (sale, refund, adjustment, PO receive/return, transfer) lands in <code>movements</code> so Stock Count reconciles to ledger-net</div></div></div>
+        <div class="step"><span class="n g">4</span><div><div class="t">Recurring expenses</div><div class="d">Weekly/monthly templates generate real EXP docs on boot (catch-up) and via PUT; nextRun advances</div></div></div>
+        <div class="step"><span class="n g">5</span><div><div class="t">Offline behavior</div><div class="d">Mongo down → app still boots on seed data with an "offline" banner; writes surface 503, nothing is silently lost</div></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="note"><b>Demo sign-ins:</b> Sokha P. (Administrator · PIN 1111) · Dara K. (Manager · 2222) · Mony S. (Cashier · 3333). PINs are plain text in the demo DB — swap for hashes before real use.</div>
+</section>
+
+<footer>StoreGenz POS · generated from the live codebase · print this page (Ctrl+P) for a clean one-pager</footer>
+</div>
+</body>
+</html>
