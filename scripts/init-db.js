@@ -242,6 +242,44 @@ const validators = {
       }
     }
   },
+  customers: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "id", "name", "phone", "email", "address", "group", "loyaltyPoints", "note", "createdBy", "createdAt", "updatedAt"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        id: { bsonType: "string", pattern: "^CUS-\\d+$" },
+        name: { bsonType: "string", minLength: 1, maxLength: 80 },
+        phone: { bsonType: "string", maxLength: 40 },
+        email: { bsonType: "string", maxLength: 120 },
+        address: { bsonType: "string", maxLength: 200 },
+        group: { bsonType: "string", minLength: 1, maxLength: 40 },
+        loyaltyPoints: { bsonType: "int", minimum: 0 },
+        note: { bsonType: "string", maxLength: 200 },
+        createdBy: { bsonType: "string" },
+        createdAt: { bsonType: "string" },
+        updatedAt: { bsonType: "string" }
+      }
+    }
+  },
+  customer_payments: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["_id", "id", "customerId", "customerName", "date", "amount", "method", "note", "createdBy", "createdAt"],
+      properties: {
+        _id: { bsonType: "string", minLength: 1 },
+        id: { bsonType: "string", pattern: "^CSP-\\d+$" },
+        customerId: { bsonType: "string", minLength: 1 },
+        customerName: { bsonType: "string", minLength: 1 },
+        date: { bsonType: "string" },
+        amount: { bsonType: "number", minimum: 0.01 },
+        method: { bsonType: "string", minLength: 1, maxLength: 40 },
+        note: { bsonType: "string", maxLength: 200 },
+        createdBy: { bsonType: "string" },
+        createdAt: { bsonType: "string" }
+      }
+    }
+  },
   stock_transfers: {
     $jsonSchema: {
       bsonType: "object",
@@ -311,6 +349,15 @@ const indexes = {
   stock_transfers: [
     { key: { createdAt: -1 }, name: "createdAt_-1" },
     { key: { sku: 1, createdAt: -1 }, name: "sku_1_createdAt_-1" }
+  ],
+  customers: [
+    { key: { name: 1 }, name: "name_1" },
+    { key: { group: 1, name: 1 }, name: "group_1_name_1" },
+    { key: { loyaltyPoints: -1 }, name: "loyaltyPoints_-1" }
+  ],
+  customer_payments: [
+    { key: { date: -1 }, name: "date_-1" },
+    { key: { customerId: 1, date: -1 }, name: "customerId_1_date_-1" }
   ]
 };
 

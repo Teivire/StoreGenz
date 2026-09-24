@@ -116,6 +116,36 @@ export type StockTransfer = {
 };
 export type StoredStockTransfer = StockTransfer & { _id: string };
 
+/** Customer: directory record; statement = unpaid sales (credit) minus payments received. */
+export type Customer = {
+  id: string;            // "CUS-<n>"
+  name: string;          // unique
+  phone: string;
+  email: string;
+  address: string;
+  group: string;         // "Default" until customer groups are managed explicitly
+  loyaltyPoints: number; // whole points, 1 point per $1 of non-refunded sales
+  note: string;
+  createdBy: string;
+  createdAt: string;     // ISO
+  updatedAt: string;
+};
+export type StoredCustomer = Customer & { _id: string };
+
+/** Customer payment: money received against credit purchases; reduces the balance. */
+export type CustomerPayment = {
+  id: string;            // "CSP-<n>"
+  customerId: string;    // Customer.id
+  customerName: string;  // denormalized for the ledger/history views
+  date: string;          // ISO
+  amount: number;        // positive; the payment IS money in
+  method: string;
+  note: string;
+  createdBy: string;
+  createdAt: string;     // ISO
+};
+export type StoredCustomerPayment = CustomerPayment & { _id: string };
+
 /** Category taxonomy: id/name/parentId/description/status/sortOrder + audit fields. */
 export type Category = {
   id: string;            // stable slug id ("beverages"), also the Mongo _id
@@ -213,6 +243,14 @@ export async function getSupplierPaymentsCollection() {
 
 export async function getTransfersCollection() {
   return (await getDb()).collection<StoredStockTransfer>("stock_transfers");
+}
+
+export async function getCustomersCollection() {
+  return (await getDb()).collection<StoredCustomer>("customers");
+}
+
+export async function getCustomerPaymentsCollection() {
+  return (await getDb()).collection<StoredCustomerPayment>("customer_payments");
 }
 
 const DEFAULT_SETTINGS: StoreSettings = {
@@ -420,6 +458,28 @@ export function ensureSeeded(): Promise<void> {
           createdBy: "system", createdAt: now, updatedAt: now,
         }));
       if (docs.length) await supColl.insertMany(docs.map(d => ({ ...d, _id: d.id })));
+    }
+
+    // Seed customers from real sales history: one record per distinct customer
+    // name ("Walk-in customer" excluded), loyalty points from their paid sales.
+    const custColl = db.collection<StoredCustomer>("customers");
+    if ((await custColl.countDocuments()) === 0) {
+      const byName = await sales.aggregate<{ _id: string; total: number }>([
+        { $match: { customer: { $exists: true, $nin: ["", "Walk-in customer"] }, status: "Paid" } },
+        { $group: { _id: "$customer", total: { $sum: "$saleTotal" } } },
+      ]).toArray();
+      const now = new Date().toISOString();
+      const docs = byName
+        .filter(u => u._id && String(u._id).trim().length > 0)
+        .sort((a, b) => String(a._id).localeCompare(String(b._id)))
+        .map((u, i) => ({
+          id: `CUS-${String(i + 1).padStart(4, "0")}`,
+          name: String(u._id), phone: "", email: "", address: "", group: "Default",
+          loyaltyPoints: Math.floor(u.total),
+          note: "Seeded from sales history",
+          createdBy: "system", createdAt: now, updatedAt: now,
+        }));
+      if (docs.length) await custColl.insertMany(docs.map(d => ({ ...d, _id: d.id })));
     }
 
     if ((await staff.countDocuments()) === 0) {

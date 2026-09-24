@@ -82,6 +82,9 @@ export async function POST(request: Request) {
     if (customer.length > 80) return bad("Customer name is too long (max 80 characters).");
     const payment = String(body.payment ?? "Cash").trim();
     if (!/^(Cash|ABA Pay|Credit)$/.test(payment)) return bad("Payment must be Cash, ABA Pay, or Credit.");
+    // Credit sales are recorded as Pending (not yet income) until a customer
+    // payment is collected in the Customers hub; cash/card tenders are final.
+    const saleStatus: SaleStatus = payment === "Credit" ? "Pending" : "Paid";
     const amountPaid = body.amountPaid === undefined ? undefined : Number(body.amountPaid);
     if (amountPaid !== undefined && (!Number.isFinite(amountPaid) || amountPaid < 0)) return bad("Amount paid must be a non-negative number.");
 
@@ -91,7 +94,7 @@ export async function POST(request: Request) {
     const nextNum = newest.length ? parseInt(newest[0].id.slice(5), 10) + 1 : 1049;
     const sale: Sale & { createdAt: Date; saleTotal: number } = {
       id: `#INV-${nextNum}`,
-      customer, date: "Just now", payment, status: "Paid" as SaleStatus,
+      customer, date: "Just now", payment, status: saleStatus,
       discount: 0, lines: [], createdAt: new Date(), servedBy, saleTotal: 0
     };
     for (const l of rawLines) {

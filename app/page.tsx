@@ -83,6 +83,152 @@ type PurchaseLite = { id: string; supplier: string; lines: { sku: string; name: 
 type ExpenseLite = { id: string; date: string; category: string; amount: number; note: string; createdBy: string; createdAt: string };
 type MovementLite = { sku: string; productName: string; delta: number; reason: string; note: string; by: string; refId: string; createdAt: string };
 type TransferLite = { id: string; sku: string; productName: string; qty: number; from: string; to: string; note: string; by: string; createdAt: string };
+type CustomerLite = { id: string; name: string; phone: string; email: string; address: string; group: string; loyaltyPoints: number; note: string; createdBy: string; createdAt: string; updatedAt: string };
+type CustStatementLite = { id: string; name: string; group: string; phone: string; email: string; loyaltyPoints: number; owed: number; paid: number; balance: number; lastActivity: string };
+
+/** Shared customer data: directory + computed statements (credit owed vs payments). */
+function useCustomers() {
+  const [customers, setCustomers] = useState<CustomerLite[] | null>(null);
+  const [statements, setStatements] = useState<CustStatementLite[] | null>(null);
+  const [orphans, setOrphans] = useState<string[]>([]);
+  const load = useCallback(() => {
+    fetch("/api/customers").then(r => r.ok ? r.json() : Promise.reject()).then(d => setCustomers(d as CustomerLite[])).catch(() => setCustomers([]));
+    fetch("/api/customer-payments").then(r => r.ok ? r.json() : Promise.reject()).then((d: { statements: CustStatementLite[]; orphans: string[] }) => { setStatements(d.statements); setOrphans(d.orphans); }).catch(() => setStatements([]));
+  }, []);
+  useEffect(load, [load]);
+  return { customers, statements, orphans, load };
+}
+
+/** Customers hub: directory, add form, groups, payments, statements, loyalty points. */
+function CustomersHub({ role }: { role: StaffRole }) {
+  const tabs = ["All Customers", "Add Customer", "Customer Groups", "Customer Payments", "Customer Statements", "Loyalty / Points"] as const;
+  const [tab, setTab] = useState<(typeof tabs)[number]>("All Customers");
+  const canManage = CAN.manageProducts(role);
+  const [formOpen, setFormOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const { customers, statements, orphans, load } = useCustomers();
+  const groups = Array.from(new Set((customers ?? []).map(c => c.group))).sort();
+  const totalOwed = (statements ?? []).reduce((n, s) => n + Math.max(0, s.balance), 0);
+  const totalPoints = (customers ?? []).reduce((n, c) => n + c.loyaltyPoints, 0);
+  const balanceOf = (id: string) => (statements ?? []).find(s => s.id === id);
+  return <>
+    <PageHeading title="Customers" sub="Customer directory, credit, payments, and loyalty" action={canManage ? "Add customer" : undefined} onAction={() => setFormOpen(true)}/>
+    <div className="subnav subnav-wrap">
+      {tabs.map(t => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => { setTab(t); setNotice(null); }}>{t}</button>)}
+    </div>
+    {notice && <p className="checkout-success success-banner" role="status">{notice}</p>}
+    {tab === "All Customers" && <div className="panel table-panel"><div className="toolbar"><strong>{customers ? `${customers.length} customer${customers.length === 1 ? "" : "s"}${statements ? ` · ${totalPoints} loyalty points` : ""}` : "Loading…"}</strong></div>
+      {!customers ? <div className="empty">Loading…</div> : customers.length === 0 ? <div className="empty">No customers yet — add one, or they appear automatically from sales history.</div>
+        : <DataTable headers={["CUSTOMER", "GROUP", "PHONE", "POINTS", "BALANCE"]} rows={customers.map(c => {
+          const st = balanceOf(c.id);
+          return [c.name, c.group, c.phone || "—", String(c.loyaltyPoints), st && st.balance > 0 ? money(st.balance) : "Settled"];
+        })}/>}
+    </div>}
+    {tab === "Add Customer" && (canManage ? <CustomerFormInline onSaved={msg => { setNotice(msg); load(); setTab("All Customers"); }}/> : <div className="panel empty-panel"><div className="empty"><strong>Managers only</strong><p>Ask a manager or administrator to add customers.</p></div></div>)}
+    {tab === "Customer Groups" && <div className="panel table-panel"><div className="toolbar"><strong>{customers ? `${groups.length} group${groups.length === 1 ? "" : "s"}` : "Loading…"}</strong></div>
+      {!customers ? <div className="empty">Loading…</div> : groups.length === 0 ? <div className="empty">No groups yet.</div>
+        : <DataTable headers={["GROUP", "CUSTOMERS", "OUTSTANDING", "POINTS"]} rows={groups.map(g => {
+          const inG = (statements ?? []).filter(s => s.group === g);
+          return [g, String(inG.length), money(inG.reduce((n, s) => n + Math.max(0, s.balance), 0)), String(inG.reduce((n, s) => n + s.loyaltyPoints, 0))];
+        })}/>}
+    </div>}
+    {tab === "Customer Payments" && <CustomerPaymentsView canManage={canManage}/>}
+    {tab === "Customer Statements" && <div className="panel table-panel"><div className="toolbar"><strong>Per-customer statement: credit owed vs payments received</strong></div>
+      {!statements ? <div className="empty">Loading…</div> : statements.length === 0 ? <div className="empty">No customers yet.</div>
+        : <div className="table-wrap"><table><thead><tr>{["CUSTOMER", "CREDIT OWED", "PAID", "BALANCE", "LAST ACTIVITY"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+          {statements.map(s => <tr key={s.id}><td><strong>{s.name}</strong></td><td>{money(s.owed)}</td><td>{money(s.paid)}</td><td>{s.balance > 0 ? money(s.balance) : "Settled"}</td><td>{new Date(s.lastActivity).toLocaleDateString()}</td></tr>)}
+        </tbody></table></div>}
+    </div>}
+    {tab === "Loyalty / Points" && <div className="panel table-panel"><div className="toolbar"><strong>{customers ? `${totalPoints} points across ${customers.length} customers · 1 point per $1 of paid sales` : "Loading…"}</strong></div>
+      {!customers ? <div className="empty">Loading…</div> : customers.length === 0 ? <div className="empty">No customers yet.</div>
+        : <DataTable headers={["CUSTOMER", "GROUP", "POINTS", "TIER"]} rows={[...customers].sort((a, b) => b.loyaltyPoints - a.loyaltyPoints).map(c => [c.name, c.group, String(c.loyaltyPoints), c.loyaltyPoints >= 500 ? "Gold" : c.loyaltyPoints >= 100 ? "Silver" : "Member"])}/>}
+    </div>}
+    {tab === "Customer Payments" && orphans.length > 0 && <p className="form-intro">Sales exist for customers not yet in the directory: {orphans.join(", ")} — add them to track credit and payments.</p>}
+    {formOpen && <CustomerFormModal onClose={() => setFormOpen(false)} onSaved={msg => { setFormOpen(false); setNotice(msg); load(); }}/>}
+  </>;
+}
+
+/** Customer Payments tab: credit balances per customer, manager-gated payment form. */
+function CustomerPaymentsView({ canManage }: { canManage: boolean }) {
+  const { statements, load } = useCustomers();
+  const [formOpen, setFormOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const list = statements ?? [];
+  const totalOwed = list.reduce((n, s) => n + Math.max(0, s.balance), 0);
+  return <>
+    <div className="panel table-panel"><div className="toolbar"><strong>{statements ? `${list.length} customer${list.length === 1 ? "" : "s"} · ${money(totalOwed)} outstanding credit` : "Loading…"}</strong>
+      {canManage && <button className="primary-button" onClick={() => setFormOpen(true)}><Plus size={15}/> Record payment</button>}</div>
+      {!statements ? <div className="empty">Loading…</div> : list.length === 0 ? <div className="empty">No customers yet.</div>
+        : <DataTable headers={["CUSTOMER", "CREDIT OWED", "PAYMENTS RECEIVED", "BALANCE", "LAST ACTIVITY"]} rows={list.map(s => [s.name, money(s.owed), money(s.paid), s.balance > 0 ? money(s.balance) : "Settled", new Date(s.lastActivity).toLocaleDateString()])}/>}
+    </div>
+    {notice && <p className="checkout-success success-banner" role="status">{notice}</p>}
+    {error && <p className="offline-banner error-banner" role="alert">{error}<button className="banner-close" aria-label="Dismiss" onClick={() => setError(null)}><X size={14}/></button></p>}
+    {formOpen && <CustomerPaymentFormModal onClose={() => setFormOpen(false)} onSaved={msg => { setFormOpen(false); setNotice(msg); load(); }}/>}
+  </>;
+}
+
+/** Record a customer payment (manager+): customer, amount, method. */
+function CustomerPaymentFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: (msg: string) => void }) {
+  const { customers } = useCustomers();
+  const [customerId, setCustomerId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState("Cash");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true); setError(null);
+    const res = await fetch("/api/customer-payments", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ customerId, amount: Number(amount), method, note }) });
+    const data = await res.json() as { id?: string; error?: string };
+    if (res.ok) onSaved(`Payment ${data.id} recorded.`); else { setError(data.error ?? "Could not record payment."); setBusy(false); }
+  };
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={e => e.stopPropagation()}>
+    <div className="modal-header"><h2>Record customer payment</h2><button aria-label="Close payment form" onClick={onClose}><X size={18}/></button></div>
+    {!customers ? <p className="form-intro">Loading customers…</p> : customers.length === 0 ? <p className="form-intro">No customers in the directory yet — add one first.</p> : <>
+      <label className="field"><span>Customer</span>
+        <select value={customerId} onChange={e => setCustomerId(e.target.value)}>{customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+      <label className="field"><span>Amount ($)</span><input type="number" min="0.01" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" autoFocus/></label>
+      <label className="field"><span>Method</span><select value={method} onChange={e => setMethod(e.target.value)}>{PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}</select></label>
+      <label className="field"><span>Note</span><input value={note} onChange={e => setNote(e.target.value)} placeholder="Optional reference (invoice #)…"/></label>
+      {error && <p className="offline-banner error-banner" role="alert">{error}<button className="banner-close" aria-label="Dismiss" onClick={() => setError(null)}><X size={14}/></button></p>}
+      <div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy || !customerId || !amount} onClick={submit}>{busy ? "Saving…" : "Record payment"}</button></div>
+    </>}
+  </div></div>;
+}
+
+/** Add-customer form, inline panel (Add Customer tab) or modal (+ button). */
+function CustomerForm({ onDone, inline }: { onDone: (name: string) => Promise<boolean>; inline?: boolean }) {
+  const [name, setName] = useState(""); const [phone, setPhone] = useState(""); const [email, setEmail] = useState("");
+  const [address, setAddress] = useState(""); const [group, setGroup] = useState("Default"); const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true); setError(null);
+    const res = await fetch("/api/customers", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ name, phone, email, address, group, note }) });
+    const data = await res.json() as { error?: string };
+    if (res.ok) { if (await onDone(name)) { setName(""); setPhone(""); setEmail(""); setAddress(""); setGroup("Default"); setNote(""); } setBusy(false); }
+    else { setError(data.error ?? "Could not create customer."); setBusy(false); }
+  };
+  const fields = <>
+    <label className="field"><span>Name *</span><input value={name} onChange={e => setName(e.target.value)} placeholder="Customer name" autoFocus/></label>
+    <label className="field"><span>Phone</span><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Optional"/></label>
+    <label className="field"><span>Email</span><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Optional"/></label>
+    <label className="field"><span>Address</span><input value={address} onChange={e => setAddress(e.target.value)} placeholder="Optional"/></label>
+    <label className="field"><span>Group</span><input value={group} onChange={e => setGroup(e.target.value)} placeholder="Default"/></label>
+    <label className="field"><span>Note</span><input value={note} onChange={e => setNote(e.target.value)} placeholder="Optional"/></label>
+    {error && <p className="offline-banner error-banner" role="alert">{error}<button className="banner-close" aria-label="Dismiss" onClick={() => setError(null)}><X size={14}/></button></p>}
+    <div className="modal-actions"><button className="primary-button" disabled={busy || !name.trim()} onClick={submit}>{busy ? "Saving…" : "Save customer"}</button></div>
+  </>;
+  return inline ? <div className="panel purchase-form-panel"><div className="toolbar"><strong>New customer</strong></div>{fields}</div>
+    : <div className="modal-backdrop" onClick={() => {}}><div className="modal" onClick={e => e.stopPropagation()}>
+      <div className="modal-header"><h2>Add customer</h2></div>{fields}</div></div>;
+}
+function CustomerFormInline({ onSaved }: { onSaved: (msg: string) => void }) {
+  return <CustomerForm inline onDone={async name => { onSaved(`Customer "${name}" added.`); return true; }}/>;
+}
+function CustomerFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: (msg: string) => void }) {
+  return <CustomerForm onDone={async name => { onSaved(`Customer "${name}" added.`); onClose(); return false; }}/>;
+}
 
 /** Stock transfers: real movements between locations, paired ledger entries, stock net-zero. */
 function StockTransfersView({ catalog, canManage }: { catalog: Product[]; canManage: boolean }) {
@@ -670,6 +816,7 @@ function ReportsHub({ sales, catalog, role }: { sales: Sale[]; catalog: Product[
   const [expenses, setExpenses] = useState<ExpenseLite[]>([]);
   useEffect(() => { let alive = true; fetch("/api/expenses").then(r => r.ok ? r.json() : Promise.reject()).then(d => { if (alive) setExpenses(d as ExpenseLite[]); }).catch(() => {}); return () => { alive = false; }; }, []);
   const { statements: supplierStatements } = useSuppliers();
+  const { statements: customerStatements } = useCustomers();
   const groups: { group: string; views: string[] }[] = [
     { group: "Sales", views: ["Sales Overview", "Sales Transactions", "Sales by Product", "Sales by Category", "Sales by Customer", "Sales by Cashier"] },
     { group: "Purchases", views: ["Purchase Summary", "Purchase by Product", "Purchase by Supplier", "Purchase Returns"] },
@@ -721,7 +868,7 @@ function ReportsHub({ sales, catalog, role }: { sales: Sale[]; catalog: Product[
       case "Supplier Summary": return <HubTable headers={["SUPPLIER", "ORDERED", "PAID", "BALANCE"]} empty="No suppliers yet" rows={(supplierStatements ?? []).map(st => [st.name, money(st.ordered), money(st.paid), st.balance > 0 ? money(st.balance) : "Settled"])}/>;
       case "Supplier Balance": return <HubTable headers={["SUPPLIER", "BALANCE", "LAST ACTIVITY"]} empty="No suppliers yet" rows={(supplierStatements ?? []).filter(st => st.balance > 0).map(st => [st.name, money(st.balance), new Date(st.lastActivity).toLocaleDateString()])}/>;
       case "Supplier Payments": return <HubTable headers={["SUPPLIER", "ORDERED", "PAID", "BALANCE", "LAST ACTIVITY"]} empty="No suppliers yet" rows={(supplierStatements ?? []).map(st => [st.name, money(st.ordered), money(st.paid), st.balance > 0 ? money(st.balance) : "Settled", new Date(st.lastActivity).toLocaleDateString()])}/>; 
-      case "Loyalty Points": return <SoonPanel title="Loyalty points" what="Points accrual and redemption will be computed here once the loyalty module is built."/>; 
+      case "Loyalty Points": return <HubTable headers={["CUSTOMER", "POINTS", "TIER"]} empty="No customers yet" rows={[...(customerStatements ?? [])].sort((a, b) => b.loyaltyPoints - a.loyaltyPoints).map(c => [c.name, String(c.loyaltyPoints), c.loyaltyPoints >= 500 ? "Gold" : c.loyaltyPoints >= 100 ? "Silver" : "Member"])}/>; 
       case "Register Summary": case "Shift Report": { const cash = counted.filter(s => s.payment === "Cash").reduce((n, s) => n + saleTotal(s), 0); return <HubTable headers={["ITEM", "AMOUNT"]} empty="No data" rows={[["Cash sales", money(cash)], ["Card / ABA sales", money(revenue - cash)], ["Refunds", money(refundAmt)], ["Expected drawer cash", money(cash - refundAmt)]]}/>; } 
       case "Staff Performance": case "Cashier Sales": return <HubTable headers={["CASHIER", "ORDERS", "SALES"]} empty="No sales yet" rows={groupBy("servedBy")}/>; 
       default: return <SoonPanel title={tab} what="This report needs a module that isn't built yet (purchases, suppliers, expenses, or the activity log) — no invented numbers are shown."/>; 
@@ -1047,7 +1194,7 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><div className="search"><Search size={17}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && query.trim()) { e.preventDefault(); const t = query.trim(); if (/^#?inv/i.test(t)) { setOrderSearch(t.replace(/^#/, "")); navigate("Transactions"); } else { navigate("Products"); setQuery(t); } } }} placeholder="Search products, orders..."/><kbd className="search-kbd">Ctrl K</kbd></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Cash Register" ? <Finance sales={sales}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsPage settings={settings} canManage={CAN.manageStaff(session.role)} onSave={updateSettings}/> : active === "Staff" ? <StaffPage staff={staff} query={query} onQuery={setQuery} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} canManage={CAN.manageStaff(session.role)} currentUser={session.name}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }
