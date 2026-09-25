@@ -61,6 +61,11 @@
 ## Project flowchart
 - `docs/flowchart.html` — self-contained (no CDN) printable flowchart of the system: 7 sections (architecture layers, sign-in & RBAC, checkout with policy gates, refund + concurrency guarantees, held sales, dashboard analytics incl. the date-range rules post-fix, backups & boot jobs). View via any static server (`npx serve docs`) or open the file directly; print (Ctrl+P) gives a clean one-pager.
 
+## Store switcher (sidebar) — wired to the registry
+- The sidebar "Switch store" menu now lists **real stores** from `GET /api/stores` (any staff): each entry shows name + ST-code, Active stores only are selectable, the current one is marked "✓ current", and admins still get the Add store shortcut into Settings → Store / Locations. Clicking a store switches instantly.
+- Active choice = `sessionStorage["pos.activeStore"]` (per-browser tab session; survives reloads, resets on browser restart). Resolution order: stored code if still an Active registry store → first Active store → settings profile fallback (single-store demo). `stores` are refetched when the session identity changes, so a fresh login lists the registry without a manual reload.
+- The active store feeds receipt headers / POS / Transactions via `activeStore.name/location` (used to always be `settings.name/location`); receipts and dashboards follow the switch. Note: sales are **not** yet scoped per store — this is a display/context switch, the ledger is still global. Adding ST-002 "TiMART" (by the user, kept) made the two-store verification possible.
+
 ## Run the server
 ```
 npm run dev

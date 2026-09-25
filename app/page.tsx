@@ -11,6 +11,8 @@ type Product = { name: string; sku: string; category: string; price: number; cos
 // Sidebar visibility mode: "auto" hides the rail until the left edge is hovered;
 // "pinned" keeps it always visible.
 type SidebarMode = "auto" | "pinned";
+// Registry row as returned by GET /api/stores (subset the client consumes).
+type StoreRow = { id: string; code: string; name: string; type: string; status: "Active" | "Inactive" };
 const seedProducts: Product[] = [
   { name: "Premium Jasmine Rice 5kg", sku: "SKU-09231", category: "Groceries", price: 12.5, cost: 9.8, stock: 4 },
   { name: "Coca Cola Original 330ml", sku: "SKU-00842", category: "Beverages", price: 0.75, cost: 0.45, stock: 48 },
@@ -1448,6 +1450,11 @@ export default function Home() {
   const [catalog, setCatalog] = useState<Product[]>(seedProducts);
   const [staff, setStaff] = useState<StaffMember[]>(seedStaff);
   const { roles, setRoles, reloadRoles } = useRolesData();
+  // Store registry + active location. The switcher lists real stores (GET /api/stores);
+  // the active one lives in sessionStorage so it survives reloads but stays per-browser.
+  const [stores, setStores] = useState<StoreRow[]>([]);
+  const [activeStoreCode, setActiveStoreCode] = useState<string>("");
+  useEffect(() => { try { setActiveStoreCode(window.sessionStorage.getItem("pos.activeStore") ?? ""); } catch {} }, []);
   const [settings, setSettings] = useState<StoreSettings>(DEFAULT_SETTINGS);
   const [dbOnline, setDbOnline] = useState<boolean | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -1489,8 +1496,35 @@ export default function Home() {
       if (mountedRef.current && gen === refreshGen.current) setDbOnline(false);
     }
   };
-
   useEffect(() => { refreshAll(); }, []);
+
+  // Store registry: refresh alongside the other collections (any staff may read).
+  const loadStores = useCallback(async () => {
+    try {
+      const res = await fetch("/api/stores", { credentials: "same-origin" });
+      if (!res.ok) return;
+      const list = (await res.json()) as StoreRow[];
+      if (!mountedRef.current) return;
+      setStores(list);
+    } catch { /* offline: switcher falls back to the settings profile */ }
+  }, []);
+  useEffect(() => { loadStores(); }, [loadStores]);
+  // After a fresh login the cookie only exists once the session is set — re-fetch
+  // the registry then so the switcher lists real stores without a manual reload.
+  useEffect(() => { if (session) loadStores(); }, [session?.name, loadStores]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The active store: the sessionStorage choice when still valid, otherwise the
+  // first Active registry store, otherwise the settings profile (single-store demo).
+  const activeStore = ((): { name: string; location: string; code: string } => {
+    const chosen = stores.find(s => s.code === activeStoreCode && s.status === "Active");
+    const firstActive = stores.find(s => s.status === "Active");
+    const pick = chosen ?? firstActive;
+    if (pick) return { name: pick.name, location: pick.type === "Online Store" ? "Online" : pick.type, code: pick.code };
+    return { name: settings.name, location: settings.location, code: "" };
+  })();
+  const switchStore = (code: string) => {
+    setActiveStoreCode(code);
+    try { window.sessionStorage.setItem("pos.activeStore", code); } catch {}
+  };
 
   // Restore a cookie session on load so a refresh doesn't sign the user out.
   useEffect(() => {
@@ -1679,11 +1713,13 @@ export default function Home() {
     >
       <div className="brand"><div className="brand-mark">{settings.name.charAt(0).toUpperCase()}</div><div><strong>{settings.name}</strong><span>POS SYSTEM</span></div><button className="mobile-close" onClick={() => setSidebarOpen(false)}><X size={19}/></button><button className="collapse-toggle" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand" : "Collapse"} onClick={toggleCollapsed}>{collapsed ? <ChevronRight size={15}/> : <ChevronLeft size={15}/>}</button></div>
       <div className="store-wrap">
-        <button className="store-switcher" aria-label="Switch store" title={collapsed ? `${settings.name} — ${settings.location}` : undefined} onClick={() => setStoreOpen(o => !o)}><div className="store-icon"><Store size={17}/></div><div><span>🏪 {settings.name}</span><small>{settings.location} store</small></div><ChevronDown size={15}/></button>
+        <button className="store-switcher" aria-label="Switch store" title={collapsed ? `${activeStore.name} — ${activeStore.location}` : undefined} onClick={() => setStoreOpen(o => !o)}><div className="store-icon"><Store size={17}/></div><div><span>🏪 {activeStore.name}</span><small>{activeStore.location} store</small></div><ChevronDown size={15}/></button>
         {storeOpen && <><button className="menu-backdrop" aria-label="Close store menu" onClick={() => setStoreOpen(false)}/><div className={`store-menu ${collapsed ? "as-popout" : ""}`}>
           <p className="store-menu-label">Switch store</p>
-          <button className="on" disabled><Store size={14}/> {settings.name} — {settings.location} <span>✓ current</span></button>
-          <p className="store-menu-note">Other locations appear here once added.</p>
+          {stores.length === 0 && <button className="on" disabled><Store size={14}/> {settings.name} — {settings.location} <span>✓ current</span></button>}
+          {stores.filter(s => s.status === "Active").map(s => <button key={s.code} className={s.code === activeStore.code ? "on" : ""} onClick={() => { switchStore(s.code); setStoreOpen(false); }}><Store size={14}/> {s.name} <span style={{ opacity: .6 }}>{s.code}</span>{s.code === activeStore.code && <span>✓ current</span>}</button>)}
+          {stores.length > 0 && stores.every(s => s.status !== "Active") && <p className="store-menu-note">No active stores in the registry.</p>}
+          <p className="store-menu-note">Inactive stores can be re-enabled in Settings → Store / Locations.</p>
           {can("settings.manage", session.role, roles) && <button onClick={() => { setStoreOpen(false); navigate("Settings"); }}><Plus size={14}/> Add store</button>}
         </div></>}
       </div>
@@ -1692,7 +1728,7 @@ export default function Home() {
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={22}/></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{active}</strong></div><div className="topbar-actions"><button className="icon-button rail-toggle" aria-label={sidebarMode === "auto" ? "Pin sidebar" : "Auto-hide sidebar"} title={sidebarMode === "auto" ? "Pin sidebar (always visible)" : "Auto-hide sidebar (hover left edge to show)"} onClick={() => setModePersisted(sidebarMode === "auto" ? "pinned" : "auto")}>{sidebarMode === "auto" ? <PanelLeftOpen size={19}/> : <PanelLeftClose size={19}/>}</button><div className="search"><Search size={17}/><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && query.trim()) { e.preventDefault(); const t = query.trim(); if (/^#?inv/i.test(t)) { setOrderSearch(t.replace(/^#/, "")); navigate("Transactions"); } else { navigate("Products"); setQuery(t); } } }} placeholder="Search products, orders..."/><kbd className="search-kbd">Ctrl K</kbd></div><button className="icon-button notification"><Bell size={19}/><i/></button><button className="language">EN <ChevronDown size={14}/></button></div></header>
-      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} methods={(settings.paymentMethods ?? []).filter(m => m.enabled).map(m => m.name)} settings={settings}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={settings.name} storeLocation={settings.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role, roles)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role, roles)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role, roles)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role, roles)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Payments" ? <PaymentsHub sales={sales} role={session.role}/> : active === "Expenses" ? <ExpensesHub role={session.role}/> : active === "Cash Register" ? <RegisterHub sales={sales} role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsHub key={active} settings={settings} sales={sales} role={session.role} roles={roles} canManage={can("settings.manage", session.role, roles)} onSave={updateSettings} onChanged={() => { void refreshAll(); }} navigate={navigate}/> : active === "Staff" || active === "Roles & Permissions" || active === "Departments" ? <StaffHub key={active} staff={staff} sales={sales} role={session.role} currentUser={session.name} query={query} onQuery={setQuery} roles={roles} reloadRoles={reloadRoles} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} initialTab={active === "Roles & Permissions" ? "Roles & Permissions" : active === "Departments" ? "Departments" : undefined}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
+      <div className={`page-content ${active === "Dashboard" ? "dash" : ""}`}>{dbOnline === false && <p className="offline-banner" role="alert">⚠ Database offline — showing seeded data; changes cannot be saved.</p>}{notice && <p className="offline-banner error-banner" role="alert">{notice}<button className="banner-close" aria-label="Dismiss error" onClick={() => setNotice(null)}><X size={14}/></button></p>}{active === "Dashboard" ? <Dashboard navigate={navigate} sales={sales} catalog={catalog} role={session.role} userName={session.name}/> : active === "POS" || active === "Returns & Refunds" ? <Sales key={active} catalog={catalog} sales={sales} initialTab={active === "POS" ? "pos" : "returns"} initialHistoryQuery={orderSearch} onRecord={recordSale} onRefund={refundSale} storeName={activeStore.name} storeLocation={activeStore.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} methods={(settings.paymentMethods ?? []).filter(m => m.enabled).map(m => m.name)} settings={settings}/> : active === "Transactions" ? <TransactionsHub sales={sales} onRefund={refundSale} storeName={activeStore.name} storeLocation={activeStore.location} receiptFooter={settings.receiptFooter} currency={settings.currency} role={session.role} orderSearch={orderSearch} canManage={CAN.manageProducts(session.role, roles)} catalog={catalog}/> : active === "Products" || active === "Categories" ? <ProductsHub key={active} catalog={catalog} sales={sales} query={query} onQuery={setQuery} initialTab={active === "Categories" ? "Categories" : "All Products"} onUpsert={(p,done)=>upsertProduct(p,done)} onDelete={(sku,done)=>deleteProduct(sku,done)} onAdjust={adjustStock} canManage={CAN.manageProducts(session.role, roles)}/> : active === "Stock" || active === "Stock Transfers" ? <StockHub key={active} catalog={catalog} canManage={CAN.manageProducts(session.role, roles)} onAdjust={adjustStock} initialTab={active === "Stock Transfers" ? "Stock Transfer" : undefined}/> : active === "Purchases" ? <PurchasesHub catalog={catalog} canManage={CAN.manageProducts(session.role, roles)}/> : active === "Suppliers" ? <SuppliersHub role={session.role}/> : active === "Customers" ? <CustomersHub role={session.role}/> : active === "Payments" ? <PaymentsHub sales={sales} role={session.role}/> : active === "Expenses" ? <ExpensesHub role={session.role}/> : active === "Cash Register" ? <RegisterHub sales={sales} role={session.role}/> : active === "Reports" ? <ReportsHub sales={sales} catalog={catalog} role={session.role}/> : active === "Settings" ? <SettingsHub key={active} settings={settings} sales={sales} role={session.role} roles={roles} canManage={can("settings.manage", session.role, roles)} onSave={updateSettings} onChanged={() => { void refreshAll(); }} navigate={navigate}/> : active === "Staff" || active === "Roles & Permissions" || active === "Departments" ? <StaffHub key={active} staff={staff} sales={sales} role={session.role} currentUser={session.name} query={query} onQuery={setQuery} roles={roles} reloadRoles={reloadRoles} onAdd={(m,pin,done)=>addStaff(m,pin,done)} onUpdate={(n,p,done)=>updateStaff(n,p,done)} onDelete={(n,done)=>deleteStaff(n,done)} initialTab={active === "Roles & Permissions" ? "Roles & Permissions" : active === "Departments" ? "Departments" : undefined}/> : <GenericPage active={active} info={info} query={query} catalog={catalog}/>}</div>
     </section>
   </main>;
 }
