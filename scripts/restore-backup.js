@@ -58,10 +58,20 @@ async function restoreBackup(backupFile, { yes = false } = {}) {
     const col = db.collection(name);
     await col.deleteMany({});
     if (Array.isArray(docs) && docs.length > 0) {
-      // Revive ISO strings written by the backup into BSON Dates where the field name suggests it.
+      // Revive ISO strings back into BSON Dates for a known set of date fields.
+      // Using an explicit allowlist (rather than "any key ending in At") prevents
+      // accidental conversion of non-date strings that happen to be parseable as
+      // dates (e.g. batch codes, reference numbers, notes containing year strings).
+      const DATE_FIELDS = new Set([
+        "createdAt", "updatedAt", "deletedAt", "expiresAt", "closedAt",
+        "openedAt", "clockIn", "clockOut", "nextRun", "lastRun", "lastActivity",
+        "signedInAt", "heldAt",
+      ]);
       const revived = docs.map(d => {
         for (const [k, v] of Object.entries(d)) {
-          if (typeof v === "string" && (k === "createdAt" || k.endsWith("At")) && !Number.isNaN(Date.parse(v))) d[k] = new Date(v);
+          if (typeof v === "string" && DATE_FIELDS.has(k) && !Number.isNaN(Date.parse(v))) {
+            d[k] = new Date(v);
+          }
         }
         return d;
       });

@@ -7,7 +7,9 @@ const bad = (message: string, status = 400) => NextResponse.json({ error: messag
 export async function PATCH(request: Request, { params }: { params: { sku: string } }) {
   try {
     await ensureSeeded();
-    await requireCapability(request, "inventory.manage");
+    // Capture the caller's name now — reused for the movement ledger entry below
+    // so we don't make a second redundant DB round-trip for the same auth check.
+    const callerName = await requireCapability(request, "inventory.manage");
     const sku = decodeURIComponent(params.sku).toUpperCase();
     const body = await request.json() as { price?: number; cost?: number; category?: string; name?: string; stock?: number; stockDelta?: number; image?: string | null };
     const products = await getProductsCollection();
@@ -49,8 +51,17 @@ export async function PATCH(request: Request, { params }: { params: { sku: strin
     }
     if (body.image !== undefined) {
       const image = typeof body.image === "string" ? body.image : "";
-      if (image && (!image.startsWith("data:image/") || image.length > 60_000)) return bad("Image must be a data URL under 60KB.");
-      if (image) update.image = image; else unsetImage = true;
+      if (image) {
+        // Only allow raster formats. SVG data URLs can contain embedded scripts
+        // and execute them in some browsers when set as an <img src>, so they are
+        // explicitly rejected regardless of size.
+        const allowed = ["data:image/png;", "data:image/jpeg;", "data:image/webp;", "data:image/gif;"];
+        if (!allowed.some(prefix => image.startsWith(prefix))) return bad("Image must be a PNG, JPEG, WebP, or GIF data URL.");
+        if (image.length > 60_000) return bad("Image data URL must be under 60KB.");
+        update.image = image;
+      } else {
+        unsetImage = true;
+      }
     }
     if (Object.keys(update).length === 0 && !unsetImage) return bad("Nothing to update.");
 
@@ -61,14 +72,13 @@ export async function PATCH(request: Request, { params }: { params: { sku: strin
 
     // Ledger: record manual stock deltas so Stock Movement has a real history.
     if (body.stockDelta !== undefined && Number(body.stockDelta) !== 0) {
-      const by = await requireCapability(request, "inventory.manage").catch(() => "system");
       await getMovementsCollection().then(m => m.insertOne({
         _id: `${sku}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         sku, productName: update.name ?? existing.name,
         delta: Number(body.stockDelta),
         reason: "adjustment",
         note: typeof (body as { note?: string }).note === "string" ? (body as { note?: string }).note!.slice(0, 200) : "",
-        by, refId: "",
+        by: callerName, refId: "",
         createdAt: new Date().toISOString(),
       }));
     }

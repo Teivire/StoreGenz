@@ -1,0 +1,13 @@
+ INFO  Accepting connections at http://localhost:59439
+ HTTP  25/09/2026 02:15:05 ::1 GET /flowchart.html
+ HTTP  25/09/2026 02:15:05 ::1 Returned 301 in 20 ms
+ HTTP  25/09/2026 02:15:05 ::1 GET /flowchart
+ HTTP  25/09/2026 02:15:05 ::1 Returned 200 in 5 ms
+ HTTP  25/09/2026 02:15:06 ::1 GET /favicon.ico
+ HTTP  25/09/2026 02:15:06 ::1 Returned 404 in 2 ms
+ HTTP  25/09/2026 08:47:55 ::1 GET /flowchart
+ HTTP  25/09/2026 08:47:55 ::1 Returned 304 in 1 ms
+ HTTP  25/09/2026 08:47:57 ::1 GET /flowchart
+ HTTP  25/09/2026 08:47:57 ::1 Returned 304 in 13 ms
+ HTTP  25/09/2026 08:50:01 ::1 GET /flowchart
+ HTTP  25/09/2026 08:50:01 ::1 Returned 304 in 1 ms

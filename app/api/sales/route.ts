@@ -82,7 +82,14 @@ export async function POST(request: Request) {
     const customer = String(body.customer ?? "").trim() || "Walk-in customer";
     if (customer.length > 80) return bad("Customer name is too long (max 80 characters).");
     const payment = String(body.payment ?? "Cash").trim();
-    if (!/^(Cash|ABA Pay|Credit)$/.test(payment)) return bad("Payment must be Cash, ABA Pay, or Credit.");
+    // Validate against the store's live payment-method list so custom methods added
+    // in Settings → Payment Methods work at checkout without a code change.
+    // readSettings() is called again below for the full config; this early check
+    // is intentionally redundant for a clear 400 before any DB work.
+    const earlyConfig = await readSettings();
+    const enabledMethods = (earlyConfig.paymentMethods ?? []).filter(m => m.enabled).map(m => m.name);
+    const allowedMethods = enabledMethods.length > 0 ? enabledMethods : ["Cash", "ABA Pay", "Credit"];
+    if (!allowedMethods.includes(payment)) return bad(`Payment method "${payment}" is not enabled. Accepted: ${allowedMethods.join(", ")}.`);
     // Credit sales are recorded as Pending (not yet income) until a customer
     // payment is collected in the Customers hub; cash/card tenders are final.
     const saleStatus: SaleStatus = payment === "Credit" ? "Pending" : "Paid";
@@ -112,7 +119,7 @@ export async function POST(request: Request) {
     // Everything money-related is derived from the same resolved prices — the client's
     // arithmetic is never trusted. Cash handling applies to Cash only: card/credit
     // tenders are always exact.
-    const config = await readSettings();
+    const config = earlyConfig;
     const subtotal = sale.lines.reduce((sum, l) => sum + l.price * l.qty, 0);
     let discount = body.discount === undefined ? 0 : Math.round(Number(body.discount) * 100) / 100;
     if (!Number.isFinite(discount) || discount < 0) return bad("Discount must be zero or more.");
@@ -153,19 +160,35 @@ export async function POST(request: Request) {
         update: { $inc: { stock: -l.qty } }
       }
     }));
-    const result = await products.bulkWrite(decrements, { ordered: true });
-    if (result.modifiedCount !== sale.lines.length && !config.allowNegativeStock) {
-      // ordered bulkWrite stops at the first op that didn't match (insufficient stock).
-      // Exactly `modifiedCount` lines were decremented before the failure — revert
-      // only those so the operation is all-or-nothing and inventory stays consistent.
-      const applied = sale.lines.slice(0, result.modifiedCount);
+
+    // Helper: revert the first `count` stock decrements. Called both on the
+    // expected "not enough stock" path and on unexpected DB throws so inventory
+    // is never permanently reduced without a corresponding sale document.
+    const revertDecrements = async (count: number) => {
+      const applied = sale.lines.slice(0, count);
       if (applied.length > 0) {
         await products.bulkWrite(
           applied.map(l => ({ updateOne: { filter: { _id: l.sku }, update: { $inc: { stock: l.qty } } } })),
           { ordered: false }
         );
       }
-      return bad("Not enough stock for one or more items.", 409);
+    };
+
+    let decrementCount = 0;
+    try {
+      const result = await products.bulkWrite(decrements, { ordered: true });
+      decrementCount = result.modifiedCount;
+      if (result.modifiedCount !== sale.lines.length && !config.allowNegativeStock) {
+        // ordered bulkWrite stops at the first op that didn't match (insufficient stock).
+        // Exactly `modifiedCount` lines were decremented before the failure — revert them.
+        await revertDecrements(result.modifiedCount);
+        return bad("Not enough stock for one or more items.", 409);
+      }
+    } catch (bulkErr) {
+      // Unexpected DB error mid-bulkWrite: we don't know how many ops completed,
+      // so attempt a best-effort full revert of all lines before re-throwing.
+      await revertDecrements(sale.lines.length).catch(() => {});
+      throw bulkErr;
     }
 
     // Concurrent checkouts can compute the same invoice number; on the resulting

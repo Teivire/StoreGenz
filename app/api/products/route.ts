@@ -95,7 +95,11 @@ export async function POST(request: Request) {
     if (!Number.isFinite(cost) || cost < 0) return bad("Cost must be zero or more.");
     if (!Number.isInteger(stock) || stock < 0) return bad("Stock must be zero or more.");
     if (!sku) return bad("SKU is required.");
-    if (image && (!image.startsWith("data:image/") || image.length > 60_000)) return bad("Image must be a data URL under 60KB.");
+    if (image) {
+      const allowed = ["data:image/png;", "data:image/jpeg;", "data:image/webp;", "data:image/gif;"];
+      if (!allowed.some(prefix => image.startsWith(prefix))) return bad("Image must be a PNG, JPEG, WebP, or GIF data URL.");
+      if (image.length > 60_000) return bad("Image data URL must be under 60KB.");
+    }
 
     const products = await getProductsCollection();
     if (await products.findOne({ _id: sku })) return bad(`SKU ${sku} is already used by another product.`, 409);

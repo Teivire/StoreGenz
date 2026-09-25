@@ -1595,7 +1595,7 @@ export default function Home() {
     const gross = lines.reduce((sum, l) => sum + l.price * l.qty, 0);
     const discount = Math.min(payment.discount ?? 0, gross);
     const net = Math.round((gross - discount) * 100) / 100;
-    const local: Sale = { id: `#INV-${parseInt(prev[0].id.slice(5), 10) + 1}`, customer: payment.customer, date: "Just now", payment: payment.payment, status: "Paid", discount, lines, saleTotal: net, ...(payment.amountPaid !== undefined ? { amountPaid: payment.amountPaid, changeDue: Math.max(0, Math.round((payment.amountPaid - net) * 100) / 100) } : {}) };
+    const local: Sale = { id: `#INV-${prev.length ? parseInt(prev[0].id.slice(5), 10) + 1 : 1049}`, customer: payment.customer, date: "Just now", payment: payment.payment, status: "Paid", discount, lines, saleTotal: net, ...(payment.amountPaid !== undefined ? { amountPaid: payment.amountPaid, changeDue: Math.max(0, Math.round((payment.amountPaid - net) * 100) / 100) } : {}) };
     let created: Sale | undefined;
     applyOrRollback(
       () => setSales([local, ...prev]),
@@ -2235,11 +2235,11 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
     return () => { controller.abort(); clearTimeout(t); };
   }, [tab, historyQuery, page, version]);
   const refunds = sales.filter(s => s.status === "Refunded");
-  const switchTab = (t: SalesTab) => { setTab(t); setRefundDone(null); };
+  const switchTab = useCallback((t: SalesTab) => { setTab(t); setRefundDone(null); }, []);
   const startRefund = (s: Sale) => { setViewing(null); setRefundNote(""); setRefundDone(null); setRefunding(s); };
   const confirmRefund = () => { if (!refunding || busyRef.current) return; busyRef.current = true; const target = refunding; setBusy(true); onRefund(target.id, refundNote, ok => { busyRef.current = false; setBusy(false); if (ok) { setRefundDone(target.id); setVersion(v => v + 1); } setRefunding(null); }); };
   const [paying, setPaying] = useState(false);
-  const openPayment = () => { if (busyRef.current || cart.length === 0) return; setJustCheckedOut(null); setPaying(true); };
+  const openPayment = useCallback(() => { if (busyRef.current || cart.length === 0) return; setJustCheckedOut(null); setPaying(true); }, [cart.length]);
   const doCheckout = (p: SalePayment) => {
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true);
@@ -2259,7 +2259,7 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
     fetch("/api/held-sales", { credentials: "same-origin" }).then(r => r.ok ? r.json() : Promise.reject()).then(d => setHeldList(d as HeldSaleLite[])).catch(() => {});
   }, []);
   useEffect(loadHeld, [loadHeld]);
-  const holdCurrent = () => {
+  const holdCurrent = useCallback(() => {
     if (busyRef.current || cart.length === 0) return;
     busyRef.current = true; setBusy(true);
     fetch("/api/held-sales", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lines: cart.map(l => ({ sku: l.sku, name: l.name, price: l.price, qty: l.qty })) }) })
@@ -2270,7 +2270,7 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
       })
       .catch(() => setHeldFlash("Could not reach the server."))
       .finally(() => { busyRef.current = false; setBusy(false); });
-  };
+  }, [cart, loadHeld]);
   const resumeHeld = (h: HeldSaleLite) => {
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true);
@@ -2316,7 +2316,7 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+  }, [embed, tab, openPayment, holdCurrent, switchTab]);
 
   const posTabs: { key: SalesTab; label: string }[] = [
     { key: "pos", label: "New Sale" },
@@ -2677,7 +2677,10 @@ function StaffFormModal({ initial, roles, onClose, onSave }: { initial?: StaffMe
     if (!name) return setError("Staff name is required.");
     if (name.length > 80) return setError("Staff name is too long (max 80 characters).");
     if (!roles.find(r => r.id === form.role)) return setError("Pick a role from the list.");
-    if (!/^\d{4,6}$/.test(pin)) return setError("PIN must be 4–6 digits.");
+    // On edit, a blank PIN means "keep the current PIN" — only validate if the
+    // user typed something. On add, a PIN is always required.
+    if (!initial && !/^\d{4,6}$/.test(pin)) return setError("PIN must be 4–6 digits.");
+    if (initial && pin !== "" && !/^\d{4,6}$/.test(pin)) return setError("New PIN must be 4–6 digits.");
     onSave({ name, role: form.role, permissions: roles.find(r => r.id === form.role)?.name ?? "", status: "Active" }, pin, ok => { if (ok) onClose(); else setError("Could not save this staff member — see the message at the top of the page."); });
   };
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => { setForm({ ...form, [k]: e.target.value }); setError(null); };

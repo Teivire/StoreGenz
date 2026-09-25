@@ -4,13 +4,18 @@ import { requireCapability,  ensureSeeded, getStaffCollection, getDepartmentsCol
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-/** Staff list. PINs are stripped — the PIN never leaves the database. */
-export async function GET() {
+/** Staff list. Requires any active session — prevents unauthenticated enumeration of staff names and roles. PINs are always stripped. */
+export async function GET(request: Request) {
   try {
     await ensureSeeded();
+    // Minimum bar: any signed-in staff member may read the directory (needed for
+    // the Staff hub and the Add-staff role picker). Unauthenticated callers get 401.
+    await requireCapability(request, "sell");
     const docs = await (await getStaffCollection()).find().sort({ _id: 1 }).toArray();
     return NextResponse.json(docs.map(({ pin, ...m }) => m));
   } catch (e) {
+    const status = (e as { status?: number }).status;
+    if (status === 401 || status === 403) return NextResponse.json({ error: (e as Error).message }, { status });
     return NextResponse.json({ error: String(e) }, { status: 503 });
   }
 }

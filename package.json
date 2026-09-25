@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "init-db": "node scripts/init-db.js",
+    "init-db:seed": "node scripts/init-db.js --seed",
+    "backfill-costs": "node scripts/backfill-costs.js",
     "backup": "node scripts/backup-db.js --print",
     "restore": "node scripts/restore-backup.js",
     "verify-concurrency": "node scripts/verify-concurrency.js",
