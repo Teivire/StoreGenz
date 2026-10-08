@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { checkCredentials, createSession, deleteSession, readSession, SESSION_COOKIE, SESSION_TTL_MS } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
 // Add Secure flag on HTTPS (production). In dev (localhost) the flag would block

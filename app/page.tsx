@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   ArrowDownRight, ArrowLeftRight, ArrowUpRight, Banknote, Bell, Box, Boxes, BriefcaseBusiness, Building2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp,
@@ -232,7 +232,7 @@ function OpenRegisterView({ canManage, defaults, open, reload }: { canManage: bo
       </div>
       {error && <p className="field-error" role="alert">{error}</p>}
       <div className="modal-actions"><button className="primary-button" disabled={busy || !(Number(amount) >= 0)} onClick={submit}>{busy ? "Opening…" : "Open register"}</button></div>
-      <p className="form-intro" style={{ marginTop: 8 }}>Default float {money(defaults.openingFloat)} — change it in Register Settings.</p>
+      <p className="form-note">Default float {money(defaults.openingFloat)} — change it in Register Settings.</p>
     </>}
   </div>;
 }
@@ -268,11 +268,11 @@ function CashMovementView({ canManage, open, reload }: { canManage: boolean; ope
       <div className="form-grid">
         <label>Direction<select value={direction} onChange={e => setDirection(e.target.value)}><option value="out">Cash out (drop, petty cash)</option><option value="in">Cash in (top-up)</option></select></label>
         <label>Amount (USD)<input type="number" min="0.01" step="0.01" value={amount} onChange={e => setAmount(e.target.value)}/></label>
-        <label style={{ gridColumn: "1 / -1" }}>Reason *<input placeholder="e.g. Bank drop / change top-up" value={reason} onChange={e => setReason(e.target.value)}/></label>
+        <label className="span-2">Reason *<input placeholder="e.g. Bank drop / change top-up" value={reason} onChange={e => setReason(e.target.value)}/></label>
       </div>
       {error && <p className="field-error" role="alert">{error}</p>}
       <div className="modal-actions"><button className="primary-button" disabled={busy || !(Number(amount) > 0) || !reason.trim()} onClick={submit}>{busy ? "Recording…" : "Record movement"}</button></div>
-      {open.movements.length > 0 && <div className="table-wrap" style={{ marginTop: 12 }}><table><thead><tr>{["ID", "DIR", "AMOUNT", "REASON", "BY", "WHEN"].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
+      {open.movements.length > 0 && <div className="inner-table-wrap mt-3"><table><thead><tr>{["ID","DIR","AMOUNT","REASON","BY","WHEN"].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>
         {open.movements.map(m => <tr key={m.id}><td>{m.id}</td><td>{m.direction === "in" ? "In" : "Out"}</td><td>{money(m.amount)}</td><td>{m.reason}</td><td>{m.by}</td><td>{new Date(m.createdAt).toLocaleTimeString()}</td></tr>)}
       </tbody></table></div>}
     </>}
@@ -299,9 +299,9 @@ function CloseRegisterView({ canManage, open, reload }: { canManage: boolean; op
       <div className="form-grid">
         <label>Expected (computed from ledger)<input value={money(expected)} disabled/></label>
         <label>Counted cash in drawer *<input type="number" min="0" step="0.01" value={count} onChange={e => setCount(e.target.value)} autoFocus/></label>
-        <label style={{ gridColumn: "1 / -1" }}>Note (optional)<input placeholder="e.g. end of Monday shift" value={note} onChange={e => setNote(e.target.value)}/></label>
+        <label className="span-2">Note (optional)<input placeholder="e.g. end of Monday shift" value={note} onChange={e => setNote(e.target.value)}/></label>
       </div>
-      {variance !== null && <p className="form-intro">Variance: <strong style={{ color: variance === 0 ? "#3fb27f" : "#e07a5f" }}>{money(variance)}</strong>{variance !== 0 && " — investigate before signing off."}</p>}
+      {variance !== null && <div className={`variance-line mt-2 ${variance === 0 ? "ok" : "warn"}`}><span>Variance:</span><strong>{money(variance)}</strong>{variance !== 0 && <span className="text-muted"> — investigate before signing off.</span>}</div>}
       {error && <p className="field-error" role="alert">{error}</p>}
       <div className="modal-actions"><button className="primary-button" disabled={busy || !(Number(count) >= 0)} onClick={submit}>{busy ? "Closing…" : "Close register"}</button></div>
     </>}
@@ -385,7 +385,7 @@ function ExpensesHub({ role }: { role: StaffRole }) {
       <div className="panel table-panel"><div className="toolbar"><strong>Monthly total — last 6 months</strong></div>
         {list.length === 0 ? <div className="empty">No data yet.</div> : <DataTable headers={["MONTH", "EXPENSES", "TOTAL"]} rows={months}/>}
       </div>
-      <div className="panel table-panel" style={{ marginTop: 12 }}><div className="toolbar"><strong>By category — all time</strong></div>
+      <div className="panel table-panel mt-3"><div className="toolbar"><strong>By category — all time</strong></div>
         {list.length === 0 ? <div className="empty">No data yet.</div> : <DataTable headers={["CATEGORY", "COUNT", "TOTAL", "THIS MONTH"]} rows={catRows}/>}
       </div>
     </>}
@@ -415,7 +415,7 @@ function ExpenseFormBody({ onSaved }: { onSaved: (msg: string) => void }) {
     <div className="form-grid">
       <label>Category<select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>{EXPENSE_CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></label>
       <label>Amount (USD)<input autoFocus type="number" min="0.01" step="0.01" placeholder="0.00" value={form.amount} onChange={e => { setForm({ ...form, amount: e.target.value }); setError(null); }}/></label>
-      <label style={{ gridColumn: "1 / -1" }}>Note (optional)<input placeholder="e.g. September electricity" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/></label>
+      <label className="span-2">Note (optional)<input placeholder="e.g. September electricity" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/></label>
     </div>
     {error && <p className="field-error" role="alert">{error}</p>}
     <div className="modal-actions"><button className="primary-button" disabled={busy} onClick={submit}>{busy ? "Saving…" : "Record expense"}</button></div>
@@ -437,7 +437,7 @@ function RecurringExpensesView({ recurrings, canManage, reload }: { recurrings: 
     {error && <p className="offline-banner error-banner" role="alert">{error}<button className="banner-close" aria-label="Dismiss" onClick={() => setError(null)}><X size={14}/></button></p>}
     {!recurrings ? <div className="empty">Loading…</div> : recurrings.length === 0 ? <div className="empty">No recurring templates — set up rent or salaries once and they post themselves.</div>
       : <div className="table-wrap"><table><thead><tr>{["ID", "CATEGORY", "AMOUNT", "FREQUENCY", "NEXT RUN", "STATUS", ""].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
-        {recurrings.map(r => <tr key={r.id}><td><strong>{r.id}</strong></td><td>{r.category}{r.note && <span style={{ display: "block", color: "#9ba5ae", fontSize: 10 }}>{r.note}</span>}</td><td>{money(r.amount)}</td><td>{r.frequency}</td><td>{new Date(r.nextRun).toLocaleDateString()}</td><td>{r.active ? <span className="you-chip">active</span> : "paused"}</td>
+        {recurrings.map(r => <tr key={r.id}><td><strong>{r.id}</strong></td><td>{r.category}{r.note && <span className="cell-sub">{r.note}</span>}</td><td>{money(r.amount)}</td><td>{r.frequency}</td><td>{new Date(r.nextRun).toLocaleDateString()}</td><td>{r.active ? <span className="you-chip">active</span> : "paused"}</td>
           <td>{canManage && <div className="row-actions"><button className="text-button" onClick={() => act(r.id, r.active ? "pause" : "resume")}>{r.active ? "Pause" : "Resume"}</button><button className="text-button danger" onClick={() => act(r.id, "delete")}>Delete</button></div>}</td></tr>)}
       </tbody></table></div>}
     {formOpen && <RecurringFormModal onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); reload(); }}/>}
@@ -462,7 +462,7 @@ function RecurringFormModal({ onClose, onSaved }: { onClose: () => void; onSaved
       <label>Amount (USD)<input type="number" min="0.01" step="0.01" placeholder="0.00" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })}/></label>
       <label>Frequency<select value={form.frequency} onChange={e => setForm({ ...form, frequency: e.target.value })}><option value="monthly">Monthly</option><option value="weekly">Weekly</option></select></label>
       <label>First due date<input type="date" value={form.nextRun} onChange={e => setForm({ ...form, nextRun: e.target.value })}/></label>
-      <label style={{ gridColumn: "1 / -1" }}>Note (optional)<input placeholder="e.g. Landlord — monthly rent" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/></label>
+      <label className="span-2">Note (optional)<input placeholder="e.g. Landlord — monthly rent" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/></label>
     </div>
     {error && <p className="field-error" role="alert">{error}</p>}
     <div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy || !(Number(form.amount) > 0)} onClick={submit}>{busy ? "Saving…" : "Create template"}</button></div>
@@ -519,7 +519,7 @@ function PaymentsHub({ sales, role }: { sales: Sale[]; role: StaffRole }) {
         <tr><td>Method changes</td><td>Administrator only — the POS reads the enabled list live</td></tr>
         <tr><td>Currency</td><td>Set in Settings (store profile)</td></tr>
       </tbody></table></div>
-      {pendingCredit.length > 0 && <p className="form-intro" style={{ margin: "10px 0 0" }}>{pendingCredit.length} credit sale{pendingCredit.length === 1 ? "" : "s"} awaiting collection ({money(pendingCredit.reduce((n, s) => n + saleTotal(s), 0))}).</p>}
+      {pendingCredit.length > 0 && <p className="form-note">{pendingCredit.length} credit sale{pendingCredit.length === 1 ? "" : "s"} awaiting collection ({money(pendingCredit.reduce((n, s) => n + saleTotal(s), 0))}).</p>}
     </div>}
   </>;
 }
@@ -547,17 +547,17 @@ function PaymentMethodsEditor({ methods, reload, canEdit }: { methods: MethodSet
       : methods.length === 0 ? <div className="empty">Could not load payment methods.</div>
       : <>
       <div className="table-wrap"><table><thead><tr>{["METHOD", "ACCEPTED", ""].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
-        {draft.map((m, i) => <tr key={m.name}><td><strong>{m.name}</strong>{m.name === "Cash" && <span className="you-chip" style={{ marginLeft: 6 }}>always on</span>}</td>
+        {draft.map((m, i) => <tr key={m.name}><td><strong>{m.name}</strong>{m.name === "Cash" && <span className="always-on-chip">always on</span>}</td>
           <td><input type="checkbox" aria-label={`Accept ${m.name}`} checked={m.enabled} disabled={m.name === "Cash"} onChange={e => setDraft(d => d.map((x, j) => j === i ? { ...x, enabled: e.target.checked } : x))}/></td>
           <td>{m.name !== "Cash" && <button className="text-button danger" aria-label={`Remove ${m.name}`} onClick={() => setDraft(d => d.filter((_, j) => j !== i))}><X size={14}/></button>}</td></tr>)}
       </tbody></table></div>
-      <div className="po-line" style={{ marginTop: 10 }}>
+      <div className="add-method-row">
         <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="New method name (e.g. Wing, TrueMoney)" onKeyDown={e => { if (e.key === "Enter" && newName.trim()) { setDraft(d => [...d, { name: newName.trim(), enabled: true }]); setNewName(""); } }}/>
         <button className="outline-button" disabled={!newName.trim() || draft.some(d => d.name.toLowerCase() === newName.trim().toLowerCase())} onClick={() => { setDraft(d => [...d, { name: newName.trim(), enabled: true }]); setNewName(""); }}><Plus size={14}/> Add method</button>
       </div>
       {notice && <p className="checkout-success success-banner" role="status">{notice}</p>}
       {error && <p className="offline-banner error-banner" role="alert">{error}<button className="banner-close" aria-label="Dismiss" onClick={() => setError(null)}><X size={14}/></button></p>}
-      <p className="form-intro" style={{ margin: "10px 0 0" }}>Cash must stay enabled. Disabled methods disappear from the POS charge dialog immediately.</p>
+      <p className="form-note">Cash must stay enabled. Disabled methods disappear from the POS charge dialog immediately.</p>
     </>}
   </div>;
 }
@@ -804,7 +804,7 @@ function PurchasesHub({ catalog, canManage }: { catalog: Product[]; canManage: b
       {!purchases ? <div className="empty">Loading…</div> : pending.length === 0 ? <div className="empty">No pending purchase orders — create one to bring stock in.</div>
         : <div className="table-wrap"><table><thead><tr>{["PO", "SUPPLIER", "ITEMS", "TOTAL COST", "CREATED", "BY", ""].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
           {pending.map(p => <tr key={p.id}>
-            <td><strong>{p.id}</strong></td><td>{p.supplier}{p.note && <span style={{ display: "block", color: "#9ba5ae", fontSize: 10 }}>{p.note}</span>}</td><td>{p.lines.length}</td><td>{money(poTotal(p))}</td><td>{new Date(p.createdAt).toLocaleDateString()}</td><td>{p.createdBy}</td>
+            <td><strong>{p.id}</strong></td><td>{p.supplier}{p.note && <span className="cell-sub">{p.note}</span>}</td><td>{p.lines.length}</td><td>{money(poTotal(p))}</td><td>{new Date(p.createdAt).toLocaleDateString()}</td><td>{p.createdBy}</td>
             <td><div className="row-actions"><button className="text-button" onClick={() => setReceiveId(p.id)}>Receive</button></div></td>
           </tr>)}</tbody></table></div>}
     </div>}
@@ -983,7 +983,7 @@ function ReceiveModal({ po, canManage, onClose, onConfirm }: { po: PurchaseLite 
     <div className="modal-header"><h2>{po && po.status !== "Pending" ? po.id : `Receive ${po?.id ?? ""}`}</h2><button aria-label="Close receive dialog" onClick={onClose}><X size={18}/></button></div>
     {!po ? <p className="refund-summary">Purchase order not found.</p> : <>
       <p className="refund-summary"><strong>{po.supplier}</strong> · {po.lines.length} line{po.lines.length === 1 ? "" : "s"} · total <strong>{money(po.lines.reduce((n, l) => n + l.qty * l.cost, 0))}</strong></p>
-      <div className="table-wrap" style={{ margin: "12px 0 0" }}><table><thead><tr>{["PRODUCT", "QTY", "UNIT COST", "STOCK IN"].map(h => <th key={h} style={{ padding: "8px 10px" }}>{h}</th>)}</tr></thead><tbody>
+      <div className="table-wrap" style={{ margin: "12px 0 0" }}><table><thead><tr>{["PRODUCT", "QTY", "UNIT COST", "STOCK IN"].map(h => <th key={h} className="po-receive-table">{h}</th>)}</tr></thead><tbody>
         {po.lines.map(l => <tr key={l.sku}><td>{l.name}</td><td>{l.qty}</td><td>{money(l.cost)}</td><td><strong>+{l.qty}</strong></td></tr>)}
       </tbody></table></div>
       <p className="form-intro" style={{ marginTop: 10 }}>{po.status === "Pending" ? "Receiving adds these quantities to stock, updates each product's cost to the PO price, and records the movement in the ledger." : `This order is ${po.status.toLowerCase()} — no further receiving actions are available.`}</p>
@@ -1052,7 +1052,7 @@ function ExpenseFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
     <div className="form-grid">
       <label>Category<select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>{EXPENSE_CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></label>
       <label>Amount (USD)<input autoFocus type="number" min="0.01" step="0.01" placeholder="0.00" value={form.amount} onChange={e => { setForm({ ...form, amount: e.target.value }); setError(null); }}/></label>
-      <label style={{ gridColumn: "1 / -1" }}>Note (optional)<input placeholder="e.g. September electricity" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/></label>
+      <label className="span-2">Note (optional)<input placeholder="e.g. September electricity" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })}/></label>
     </div>
     {error && <p className="field-error" role="alert">{error}</p>}
     <div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy} onClick={submit}>{busy ? "Saving…" : "Record expense"}</button></div>
@@ -1065,9 +1065,9 @@ function SoonPanel({ title, what }: { title: string; what: string }) {
 }
 
 /** Thin data rows for hub views fed straight from state (no server paging needed). */
-function HubTable({ headers, rows, empty }: { headers: string[]; rows: string[][]; empty: string }) {
+function HubTable({ headers, rows, empty, onExport }: { headers: string[]; rows: string[][]; empty: string; onExport?: () => void }) {
   if (rows.length === 0) return <div className="panel empty-panel"><div className="empty"><strong>{empty}</strong><p>Nothing to show yet.</p></div></div>;
-  return <div className="panel table-panel"><DataTable headers={headers} rows={rows}/></div>;
+  return <div className="panel table-panel">{onExport && <div className="toolbar"><strong>{rows.length} row{rows.length === 1 ? "" : "s"}</strong><button className="outline-button" onClick={onExport}><Download size={14}/> Export CSV</button></div>}<DataTable headers={headers} rows={rows}/></div>;
 }
 
 /** Transactions hub: the 11-view transaction ledger. */
@@ -1323,39 +1323,70 @@ function ReportsHub({ sales, catalog, role }: { sales: Sale[]; catalog: Product[
   };
   const inventoryValue = catalog.reduce((n, p) => n + p.price * p.stock, 0);
   const inventoryCost = catalog.reduce((n, p) => n + p.cost * p.stock, 0);
+
+  // Builds a CSV exporter for the current report view.
+  const mkExport = (headers: string[], rows: string[][], filename: string) => () =>
+    exportCSV(rows.map(r => Object.fromEntries(headers.map((h, i) => [h, r[i] ?? ""]))), filename);
+
   const view = () => {
     switch (tab) {
-      case "Sales Overview": return <HubTable headers={["METRIC", "VALUE"]} empty="No data" rows={[
-        ["Orders", String(counted.length)], ["Revenue", money(revenue)], ["Items sold", String(counted.reduce((n, s) => n + itemCount(s), 0))], ["Refunds", `${money(refundAmt)} (${refunded.length})`], ["Net revenue", money(revenue - refundAmt)],
-      ]}/>;
-      case "Sales Transactions": return <HubTable headers={["INVOICE", "CUSTOMER", "DATE", "AMOUNT", "STATUS"]} empty="No sales yet" rows={[...sales].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")).slice(0, 40).map(s => [s.id, s.customer, s.date, money(saleTotal(s)), s.status])}/>; 
-      case "Sales by Product": { const m = new Map<string, number>(); for (const s of counted) for (const l of s.lines) m.set(l.name, (m.get(l.name) ?? 0) + l.price * l.qty); return <HubTable headers={["PRODUCT", "REVENUE"]} empty="No sales yet" rows={Array.from(m.entries()).map(([n, v]) => [n, money(v)]).sort((a, b) => parseFloat(b[1].replace(/[$,]/g, "")) - parseFloat(a[1].replace(/[$,]/g, "")))}/>; }
-      case "Sales by Category": return <HubTable headers={["CATEGORY", "ORDERS", "SALES"]} empty="No sales yet" rows={groupBy("category")}/>; 
-      case "Sales by Customer": return <HubTable headers={["CUSTOMER", "ORDERS", "SALES"]} empty="No sales yet" rows={groupBy("customer")}/>; 
-      case "Sales by Cashier": return <HubTable headers={["CASHIER", "ORDERS", "SALES"]} empty="No sales yet" rows={groupBy("servedBy")}/>; 
-      case "Stock Summary": return <HubTable headers={["PRODUCT", "SKU", "STOCK", "STATUS"]} empty="Catalog is empty" rows={catalog.map(p => [p.name, p.sku, `${p.stock} units`, p.stock === 0 ? "Out of stock" : p.stock < LOW_STOCK_LIMIT ? "Low stock" : "Healthy"])}/> 
-      case "Stock Valuation": return <HubTable headers={["METRIC", "VALUE"]} empty="Catalog is empty" rows={[["Retail value", money(inventoryValue)], ["Cost value", money(inventoryCost)], ...(showMoney ? [["Potential margin", money(inventoryValue - inventoryCost)] as string[]] : [])]}/>; 
-      case "Low Stock": return <HubTable headers={["PRODUCT", "SKU", "STOCK"]} empty="No low stock" rows={catalog.filter(p => p.stock > 0 && p.stock < LOW_STOCK_LIMIT).map(p => [p.name, p.sku, `${p.stock} units`])}/>; 
-      case "Out of Stock": return <HubTable headers={["PRODUCT", "SKU", "STOCK"]} empty="Nothing out of stock" rows={catalog.filter(p => p.stock === 0).map(p => [p.name, p.sku, "0 units"])}/>; 
-      case "Profit & Loss": { const expenseTotal = expenses.reduce((n, e) => n + e.amount, 0); return <HubTable headers={["LINE", "AMOUNT"]} empty="No data" rows={showMoney ? [["Revenue", money(revenue)], ["Cost of goods sold", money(-cost)], ["Gross profit", money(revenue - cost)], ["Refunds", money(-refundAmt)], ["Operating expenses", money(-expenseTotal)], ["Net", money(revenue - cost - refundAmt - expenseTotal)]] : [["Sign in as a manager", "—"]]} />; } 
-      case "Refunds": return <HubTable headers={["INVOICE", "CUSTOMER", "DATE", "AMOUNT", "REASON"]} empty="No refunds yet" rows={refunded.map(s => [s.id, s.customer, s.date, money(saleTotal(s)), s.refundReason || "—"])}/>; 
-      case "Expenses": return <HubTable headers={["ID", "DATE", "CATEGORY", "AMOUNT"]} empty="No expenses recorded yet" rows={[...expenses].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 40).map(e => [e.id, new Date(e.date).toLocaleDateString(), e.category, money(-e.amount)])}/>;  
-      case "Customer Summary": case "Customer Sales": case "Customer Balance": return <HubTable headers={["CUSTOMER", "ORDERS", "SALES"]} empty="No customers yet" rows={groupBy("customer")}/>;
-      case "Supplier Summary": return <HubTable headers={["SUPPLIER", "ORDERED", "PAID", "BALANCE"]} empty="No suppliers yet" rows={(supplierStatements ?? []).map(st => [st.name, money(st.ordered), money(st.paid), st.balance > 0 ? money(st.balance) : "Settled"])}/>;
-      case "Supplier Balance": return <HubTable headers={["SUPPLIER", "BALANCE", "LAST ACTIVITY"]} empty="No suppliers yet" rows={(supplierStatements ?? []).filter(st => st.balance > 0).map(st => [st.name, money(st.balance), new Date(st.lastActivity).toLocaleDateString()])}/>;
-      case "Supplier Payments": return <HubTable headers={["SUPPLIER", "ORDERED", "PAID", "BALANCE", "LAST ACTIVITY"]} empty="No suppliers yet" rows={(supplierStatements ?? []).map(st => [st.name, money(st.ordered), money(st.paid), st.balance > 0 ? money(st.balance) : "Settled", new Date(st.lastActivity).toLocaleDateString()])}/>; 
-      case "Loyalty Points": return <HubTable headers={["CUSTOMER", "POINTS", "TIER"]} empty="No customers yet" rows={[...(customerStatements ?? [])].sort((a, b) => b.loyaltyPoints - a.loyaltyPoints).map(c => [c.name, String(c.loyaltyPoints), loyaltyTier(c.loyaltyPoints)])}/>; 
-      case "Register Summary": case "Shift Report": { const cash = counted.filter(s => s.payment === "Cash").reduce((n, s) => n + saleTotal(s), 0); return <HubTable headers={["ITEM", "AMOUNT"]} empty="No data" rows={[["Cash sales", money(cash)], ["Card / ABA sales", money(revenue - cash)], ["Refunds", money(refundAmt)], ["Expected drawer cash", money(cash - refundAmt)]]}/>; } 
-      case "Staff Performance": case "Cashier Sales": return <HubTable headers={["CASHIER", "ORDERS", "SALES"]} empty="No sales yet" rows={groupBy("servedBy")}/>; 
-      default: return <SoonPanel title={tab} what="This report needs a module that isn't built yet (purchases, suppliers, expenses, or the activity log) — no invented numbers are shown."/>; 
+      case "Sales Overview": { const rows = [["Orders", String(counted.length)], ["Revenue", money(revenue)], ["Items sold", String(counted.reduce((n, s) => n + itemCount(s), 0))], ["Refunds", `${money(refundAmt)} (${refunded.length})`], ["Net revenue", money(revenue - refundAmt)]]; return <HubTable headers={["METRIC","VALUE"]} empty="No data" rows={rows} onExport={mkExport(["METRIC","VALUE"], rows, "sales-overview.csv")}/>; }
+      case "Sales Transactions": { const rows = [...sales].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")).slice(0, 40).map(s => [s.id, s.customer, s.date, money(saleTotal(s)), s.status]); return <HubTable headers={["INVOICE","CUSTOMER","DATE","AMOUNT","STATUS"]} empty="No sales yet" rows={rows} onExport={mkExport(["INVOICE","CUSTOMER","DATE","AMOUNT","STATUS"], rows, "transactions.csv")}/>; }
+      case "Sales by Product": { const m = new Map<string, number>(); for (const s of counted) for (const l of s.lines) m.set(l.name, (m.get(l.name) ?? 0) + l.price * l.qty); const rows = Array.from(m.entries()).map(([n, v]) => [n, money(v)]).sort((a, b) => parseFloat(b[1].replace(/[$,]/g, "")) - parseFloat(a[1].replace(/[$,]/g, ""))); return <HubTable headers={["PRODUCT","REVENUE"]} empty="No sales yet" rows={rows} onExport={mkExport(["PRODUCT","REVENUE"], rows, "sales-by-product.csv")}/>; }
+      case "Sales by Category": { const rows = groupBy("category"); return <HubTable headers={["CATEGORY","ORDERS","SALES"]} empty="No sales yet" rows={rows} onExport={mkExport(["CATEGORY","ORDERS","SALES"], rows, "sales-by-category.csv")}/>; }
+      case "Sales by Customer": { const rows = groupBy("customer"); return <HubTable headers={["CUSTOMER","ORDERS","SALES"]} empty="No sales yet" rows={rows} onExport={mkExport(["CUSTOMER","ORDERS","SALES"], rows, "sales-by-customer.csv")}/>; }
+      case "Sales by Cashier": { const rows = groupBy("servedBy"); return <HubTable headers={["CASHIER","ORDERS","SALES"]} empty="No sales yet" rows={rows} onExport={mkExport(["CASHIER","ORDERS","SALES"], rows, "sales-by-cashier.csv")}/>; }
+      case "Stock Summary": { const rows = catalog.map(p => [p.name, p.sku, `${p.stock} units`, p.stock === 0 ? "Out of stock" : p.stock < LOW_STOCK_LIMIT ? "Low stock" : "Healthy"]); return <HubTable headers={["PRODUCT","SKU","STOCK","STATUS"]} empty="Catalog is empty" rows={rows} onExport={mkExport(["PRODUCT","SKU","STOCK","STATUS"], rows, "stock-summary.csv")}/>; }
+      case "Stock Valuation": { const rows = [["Retail value", money(inventoryValue)], ["Cost value", money(inventoryCost)], ...(showMoney ? [["Potential margin", money(inventoryValue - inventoryCost)] as string[]] : [])]; return <HubTable headers={["METRIC","VALUE"]} empty="Catalog is empty" rows={rows} onExport={mkExport(["METRIC","VALUE"], rows, "stock-valuation.csv")}/>; }
+      case "Low Stock": { const rows = catalog.filter(p => p.stock > 0 && p.stock < LOW_STOCK_LIMIT).map(p => [p.name, p.sku, `${p.stock} units`]); return <HubTable headers={["PRODUCT","SKU","STOCK"]} empty="No low stock" rows={rows} onExport={mkExport(["PRODUCT","SKU","STOCK"], rows, "low-stock.csv")}/>; }
+      case "Out of Stock": { const rows = catalog.filter(p => p.stock === 0).map(p => [p.name, p.sku, "0 units"]); return <HubTable headers={["PRODUCT","SKU","STOCK"]} empty="Nothing out of stock" rows={rows} onExport={mkExport(["PRODUCT","SKU","STOCK"], rows, "out-of-stock.csv")}/>; }
+      case "Profit & Loss": { const expenseTotal = expenses.reduce((n, e) => n + e.amount, 0); const rows = showMoney ? [["Revenue", money(revenue)], ["Cost of goods sold", money(-cost)], ["Gross profit", money(revenue - cost)], ["Refunds", money(-refundAmt)], ["Operating expenses", money(-expenseTotal)], ["Net", money(revenue - cost - refundAmt - expenseTotal)]] : [["Sign in as a manager", "�"]]; return <HubTable headers={["LINE","AMOUNT"]} empty="No data" rows={rows} onExport={showMoney ? mkExport(["LINE","AMOUNT"], rows, "profit-loss.csv") : undefined}/>; }
+      case "Refunds": { const rows = refunded.map(s => [s.id, s.customer, s.date, money(saleTotal(s)), s.refundReason || "�"]); return <HubTable headers={["INVOICE","CUSTOMER","DATE","AMOUNT","REASON"]} empty="No refunds yet" rows={rows} onExport={mkExport(["INVOICE","CUSTOMER","DATE","AMOUNT","REASON"], rows, "refunds.csv")}/>; }
+      case "Expenses": { const rows = [...expenses].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 40).map(e => [e.id, new Date(e.date).toLocaleDateString(), e.category, money(-e.amount)]); return <HubTable headers={["ID","DATE","CATEGORY","AMOUNT"]} empty="No expenses recorded yet" rows={rows} onExport={mkExport(["ID","DATE","CATEGORY","AMOUNT"], rows, "expenses.csv")}/>; }
+      case "Customer Summary": case "Customer Sales": case "Customer Balance": { const rows = groupBy("customer"); return <HubTable headers={["CUSTOMER","ORDERS","SALES"]} empty="No customers yet" rows={rows} onExport={mkExport(["CUSTOMER","ORDERS","SALES"], rows, "customers.csv")}/>; }
+      case "Supplier Summary": { const rows = (supplierStatements ?? []).map(st => [st.name, money(st.ordered), money(st.paid), st.balance > 0 ? money(st.balance) : "Settled"]); return <HubTable headers={["SUPPLIER","ORDERED","PAID","BALANCE"]} empty="No suppliers yet" rows={rows} onExport={mkExport(["SUPPLIER","ORDERED","PAID","BALANCE"], rows, "suppliers.csv")}/>; }
+      case "Supplier Balance": { const rows = (supplierStatements ?? []).filter(st => st.balance > 0).map(st => [st.name, money(st.balance), new Date(st.lastActivity).toLocaleDateString()]); return <HubTable headers={["SUPPLIER","BALANCE","LAST ACTIVITY"]} empty="No suppliers yet" rows={rows} onExport={mkExport(["SUPPLIER","BALANCE","LAST ACTIVITY"], rows, "supplier-balance.csv")}/>; }
+      case "Supplier Payments": { const rows = (supplierStatements ?? []).map(st => [st.name, money(st.ordered), money(st.paid), st.balance > 0 ? money(st.balance) : "Settled", new Date(st.lastActivity).toLocaleDateString()]); return <HubTable headers={["SUPPLIER","ORDERED","PAID","BALANCE","LAST ACTIVITY"]} empty="No suppliers yet" rows={rows} onExport={mkExport(["SUPPLIER","ORDERED","PAID","BALANCE","LAST ACTIVITY"], rows, "supplier-payments.csv")}/>; }
+      case "Loyalty Points": { const rows = [...(customerStatements ?? [])].sort((a, b) => b.loyaltyPoints - a.loyaltyPoints).map(c => [c.name, String(c.loyaltyPoints), loyaltyTier(c.loyaltyPoints)]); return <HubTable headers={["CUSTOMER","POINTS","TIER"]} empty="No customers yet" rows={rows} onExport={mkExport(["CUSTOMER","POINTS","TIER"], rows, "loyalty.csv")}/>; }
+      case "Register Summary": case "Shift Report": { const cash = counted.filter(s => s.payment === "Cash").reduce((n, s) => n + saleTotal(s), 0); const rows = [["Cash sales", money(cash)], ["Card / ABA sales", money(revenue - cash)], ["Refunds", money(refundAmt)], ["Expected drawer cash", money(cash - refundAmt)]]; return <HubTable headers={["ITEM","AMOUNT"]} empty="No data" rows={rows} onExport={mkExport(["ITEM","AMOUNT"], rows, "register-summary.csv")}/>; }
+      case "Staff Performance": case "Cashier Sales": { const rows = groupBy("servedBy"); return <HubTable headers={["CASHIER","ORDERS","SALES"]} empty="No sales yet" rows={rows} onExport={mkExport(["CASHIER","ORDERS","SALES"], rows, "staff-performance.csv")}/>; }      default: return <SoonPanel title={tab} what="This report needs a module that isn't built yet (purchases, suppliers, expenses, or the activity log) — no invented numbers are shown."/>;
     }
   };
+
+  const viewMeta: Record<string, string> = {
+    "Sales Overview": "Key sales metrics at a glance", "Sales Transactions": "Full transaction history", "Sales by Product": "Revenue ranked by product",
+    "Sales by Category": "Revenue broken down by product category", "Sales by Customer": "Sales volume per customer", "Sales by Cashier": "Performance per team member",
+    "Purchase Summary": "All purchase orders", "Purchase by Product": "Products ordered from suppliers", "Purchase by Supplier": "Order history by supplier", "Purchase Returns": "Returned purchase orders",
+    "Stock Summary": "Current stock levels across your catalog", "Stock Movement": "All stock in / out movements", "Low Stock": "Products approaching zero", "Out of Stock": "Products with no units remaining",
+    "Stock Valuation": "Total inventory value at retail and cost", "Stock Adjustments": "Manual stock adjustments",
+    "Customer Summary": "All customer sales totals", "Customer Sales": "Sales broken down per customer", "Customer Balance": "Outstanding credit balances", "Loyalty Points": "Points earned per customer",
+    "Supplier Summary": "Overview of every supplier account", "Supplier Balance": "Suppliers with outstanding balances", "Supplier Payments": "Payment history per supplier",
+    "Profit & Loss": "Revenue minus costs and expenses", "Payments": "All payment transactions", "Expenses": "Recorded operating expenses", "Refunds": "All processed refunds", "Cash Flow": "Cash in and out over time",
+    "Register Summary": "Cash register totals", "Shift Report": "Per-shift breakdown", "Cash In / Out": "Manual cash movements", "Cash Difference": "Counted vs expected variance",
+    "Staff Performance": "Sales and orders per staff member", "Cashier Sales": "Cashier-level sales breakdown", "Activity Log": "Audit trail of all store actions",
+  };
+
   return <>
     <PageHeading title="Reports" sub="Every report across sales, inventory, customers, finance, and staff"/>
-    <div className="subnav subnav-wrap">
-      {flat.map(t => <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t}</button>)}
+    <div className="reports-layout">
+      <aside className="reports-nav">
+        {groups.map(g => (
+          <div key={g.group} className="reports-nav-group">
+            <p className="reports-nav-label">{g.group}</p>
+            {g.views.map(v => (
+              <button key={v} className={`reports-nav-item ${tab === v ? "active" : ""}`} onClick={() => setTab(v)}>{v}</button>
+            ))}
+          </div>
+        ))}
+      </aside>
+      <div className="reports-content">
+        <div className="reports-content-header">
+          <h2 className="reports-title">{tab}</h2>
+          <p className="reports-sub">{viewMeta[tab] ?? ""}</p>
+        </div>
+        {view()}
+      </div>
     </div>
-    {view()}
   </>;
 }
 
@@ -1371,7 +1402,7 @@ function CategoriesView({ catalog, canManage }: { catalog: Product[]; canManage:
   return <div className="panel table-panel"><div className="toolbar"><strong>{cats ? `${cats.length} categories` : "Loading…"}</strong>{canManage && <button className="primary-button" onClick={() => setAdding(true)}><Plus size={15}/> Add category</button>}</div>
     {!cats ? <div className="empty">Loading…</div> : cats.length === 0 ? <div className="empty">No categories yet.</div>
       : <div className="table-wrap"><table><thead><tr>{["NAME", "PARENT", "PRODUCTS", "SORT", "STATUS", "CREATED", ""].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>
-        {cats.map(c => <tr key={c.id}><td><strong>{c.name}</strong>{c.description && <span style={{ display: "block", color: "#9ba5ae", fontSize: 10 }}>{c.description}</span>}</td><td>{cats.find(x => x.id === c.parentId)?.name ?? "—"}</td><td>{c.productCount ?? usedNames.has(c.name) ? (c.productCount ?? catalog.filter(p => p.category === c.name).length) : 0}</td><td>{c.sortOrder}</td><td><span className={`status ${c.status === "Active" ? "paid" : "refunded"}`}>{c.status}</span></td><td>{new Date(c.createdAt).toLocaleDateString()}</td><td><div className="row-actions">{canManage ? <button className="text-button" onClick={() => setEditing(c)}>Edit</button> : <span className="you-chip">view only</span>}</div></td></tr>
+        {cats.map(c => <tr key={c.id}><td><strong>{c.name}</strong>{c.description && <span className="cell-sub">{c.description}</span>}</td><td>{cats.find(x => x.id === c.parentId)?.name ?? "—"}</td><td>{c.productCount ?? usedNames.has(c.name) ? (c.productCount ?? catalog.filter(p => p.category === c.name).length) : 0}</td><td>{c.sortOrder}</td><td><span className={`status ${c.status === "Active" ? "paid" : "refunded"}`}>{c.status}</span></td><td>{new Date(c.createdAt).toLocaleDateString()}</td><td><div className="row-actions">{canManage ? <button className="text-button" onClick={() => setEditing(c)}>Edit</button> : <span className="you-chip">view only</span>}</div></td></tr>
       )}</tbody></table></div>}
     {(adding || editing) && <CategoryFormModal initial={editing} onClose={() => { setAdding(false); setEditing(null); }} onSaved={() => { load(); setAdding(false); setEditing(null); }}/>}
   </div>;
@@ -1398,7 +1429,7 @@ function CategoryFormModal({ initial, onClose, onSaved }: { initial: { id?: stri
       <label>Parent category<select value={form.parentId} onChange={e => setForm({ ...form, parentId: e.target.value })}><option value="">— Top level —</option>{cats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
       <label>Status<select value={form.status} onChange={e => setForm({ ...form, status: e.target.value as "Active" | "Inactive" })}><option>Active</option><option>Inactive</option></select></label>
       <label>Sort order<input type="number" value={form.sortOrder} onChange={e => setForm({ ...form, sortOrder: e.target.value })}/></label>
-      <label style={{ gridColumn: "1 / -1" }}>Description<input placeholder="Optional" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}/></label>
+      <label className="span-2">Description<input placeholder="Optional" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}/></label>
     </div>
     {error && <p className="field-error" role="alert">{error}</p>}
     <div className="modal-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={busy} onClick={submit}>{busy ? "Saving…" : "Save category"}</button></div>
@@ -1430,19 +1461,28 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Icon-rail collapse; persisted so the choice survives reloads.
   const [collapsed, setCollapsed] = useState(false);
-  useEffect(() => { try { setCollapsed(window.localStorage.getItem("pos.sidebar") === "min"); } catch {} }, []);
+  useEffect(() => {
+    try {
+      // v2: clear old collapsed state so sidebar defaults to expanded on upgrade
+      if (!window.localStorage.getItem("pos.sidebar.v2")) {
+        window.localStorage.removeItem("pos.sidebar");
+        window.localStorage.setItem("pos.sidebar.v2", "1");
+      }
+      setCollapsed(window.localStorage.getItem("pos.sidebar") === "min");
+    } catch {}
+  }, []);
   // Auto-hide mode (desktop): the rail slides away and the content takes the full
   // width; hovering the thin left strip reveals it as an overlay (no reflow).
   // Pinned keeps the classic always-visible sidebar. Choice is persisted.
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("pinned");
-  const [sidebarHover, setSidebarHover] = useState(false);
-  const [peek, setPeek] = useState(false);
-  const peekTimer = useRef<number | null>(null);
-  useEffect(() => { try { setSidebarMode(window.localStorage.getItem("pos.sidebarMode") === "pinned" ? "pinned" : "auto"); } catch { setSidebarMode("auto"); } }, []);
-  const setModePersisted = (m: SidebarMode) => { setSidebarMode(m); setSidebarHover(false); setPeek(false); try { window.localStorage.setItem("pos.sidebarMode", m); } catch {} };
-  const showPeek = () => { if (peekTimer.current) { window.clearTimeout(peekTimer.current); peekTimer.current = null; } setPeek(true); };
-  const hidePeekSoon = () => { if (peekTimer.current) window.clearTimeout(peekTimer.current); peekTimer.current = window.setTimeout(() => setPeek(false), 160); };
-  useEffect(() => () => { if (peekTimer.current) window.clearTimeout(peekTimer.current); }, []);
+  useEffect(() => {
+    try {
+      // Default to pinned (always visible) unless user has explicitly set auto
+      const v = window.localStorage.getItem("pos.sidebarMode");
+      setSidebarMode(v === "auto" ? "auto" : "pinned");
+    } catch { setSidebarMode("pinned"); }
+  }, []);
+  const setModePersisted = (m: SidebarMode) => { setSidebarMode(m); try { window.localStorage.setItem("pos.sidebarMode", m); } catch {} };
   const toggleCollapsed = () => setCollapsed(c => { const v = !c; try { window.localStorage.setItem("pos.sidebar", v ? "min" : "full"); } catch {} return v; });
   const [query, setQuery] = useState("");
   // Start from seed data so the UI renders instantly; real state hydrates from MongoDB below.
@@ -1701,19 +1741,12 @@ export default function Home() {
   if (!session) {    return <LoginScreen onLogin={(name, role) => { setSignedInAt(new Date()); setSession({ name, role }); }} settings={settings}/>; 
   }
 
-  return <main className={`app-shell ${sidebarMode === "auto" ? "sidebar-autohide" : ""}`}>
+  return <main className="app-shell">
     {sidebarOpen && <button className="sidebar-backdrop" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
-    <div className="sidebar-hotzone" onMouseEnter={showPeek} onMouseLeave={hidePeekSoon} aria-hidden="true"/>
-    <aside
-      className={`sidebar ${sidebarOpen ? "sidebar-open" : ""} ${collapsed ? "collapsed" : ""} ${sidebarMode === "auto" && !sidebarHover ? "autohide" : ""} ${peek ? "peek" : ""}`}
-      onMouseEnter={() => { setSidebarHover(true); showPeek(); }}
-      onMouseLeave={() => { setSidebarHover(false); hidePeekSoon(); }}
-      onFocus={e => { if (e.currentTarget.contains(e.target as Node)) { setSidebarHover(true); showPeek(); } }}
-      onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) { setSidebarHover(false); hidePeekSoon(); } }}
-    >
-      <div className="brand"><div className="brand-mark">{settings.name.charAt(0).toUpperCase()}</div><div><strong>{settings.name}</strong><span>POS SYSTEM</span></div><button className="mobile-close" onClick={() => setSidebarOpen(false)}><X size={19}/></button><button className="collapse-toggle" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand" : "Collapse"} onClick={toggleCollapsed}>{collapsed ? <ChevronRight size={15}/> : <ChevronLeft size={15}/>}</button></div>
+    <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""} ${collapsed ? "collapsed" : ""}`}>
+      <div className="brand"><div className="brand-mark">{settings.name.charAt(0).toUpperCase()}</div><div><strong>{settings.name}</strong></div><button className="mobile-close" onClick={() => setSidebarOpen(false)}><X size={19}/></button><button className="collapse-toggle" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand" : "Collapse"} onClick={toggleCollapsed}>{collapsed ? <ChevronRight size={15}/> : <ChevronLeft size={15}/>}</button></div>
       <div className="store-wrap">
-        <button className="store-switcher" aria-label="Switch store" title={collapsed ? `${activeStore.name} — ${activeStore.location}` : undefined} onClick={() => setStoreOpen(o => !o)}><div className="store-icon"><Store size={17}/></div><div><span>🏪 {activeStore.name}</span><small>{activeStore.location} store</small></div><ChevronDown size={15}/></button>
+        <button className="store-switcher" aria-label="Switch store" title={collapsed ? activeStore.name : undefined} onClick={() => setStoreOpen(o => !o)}><div className="store-icon"><Store size={16}/></div><div><span>{activeStore.name}</span></div><ChevronDown size={14}/></button>
         {storeOpen && <><button className="menu-backdrop" aria-label="Close store menu" onClick={() => setStoreOpen(false)}/><div className={`store-menu ${collapsed ? "as-popout" : ""}`}>
           <p className="store-menu-label">Switch store</p>
           {stores.length === 0 && <button className="on" disabled><Store size={14}/> {settings.name} — {settings.location} <span>✓ current</span></button>}
@@ -1798,7 +1831,13 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
   // An invalid/empty custom range must NOT silently widen to all time — keep the
   // window empty so the numbers visibly respond once real dates are applied.
   const customEmpty = range === "custom" && (!customValid || (!customFrom && !customTo));
-  const rangeLabel = range === "today" ? "Today" : range === "all" ? "All time" : range === "month" ? "This month" : range === "custom" ? (customValid ? `${customFrom} → ${customTo || "today"}` : "Custom range") : `Last ${range} days`;
+  // Format a YYYY-MM-DD string for display: "Sep 1, 2026"
+  const fmtDate = (iso: string) => iso ? new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+  const rangeLabel = range === "today" ? "Today"
+    : range === "all"    ? "All time"
+    : range === "month"  ? "This month"
+    : range === "custom" ? (customValid ? `${fmtDate(customFrom)} → ${fmtDate(customTo || new Date().toISOString().slice(0,10))}` : "Custom range")
+    : `Last ${range} days`;
   const categories = Array.from(new Set(catalog.map(p => p.category))).sort();
   const payments = Array.from(new Set(sales.map(s => s.payment))).sort();
   const cashiers = Array.from(new Set(sales.map(s => s.servedBy).filter((x): x is string => !!x))).sort();
@@ -1929,15 +1968,15 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
   return <>
     <div className="page-heading">
       <div>
-        <p className="eyebrow">TODAY · {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }).toUpperCase()}</p>
-        <h1>Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}, {userName} <span>👋</span></h1>
-        <p className="subtitle">Here&apos;s today&apos;s store performance.</p>
+        <p className="eyebrow">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).toUpperCase()}</p>
+        <h1>Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}, {userName}</h1>
+        <p className="subtitle">Here&apos;s how the store is doing.</p>
       </div>
-      <button className="primary-button" onClick={() => navigate("POS")} title="Ctrl+N"><Plus size={18}/> New sale</button>
+      <button className="primary-button" onClick={() => navigate("POS")} title="Ctrl+N"><Plus size={16}/> New sale</button>
     </div>
 
     <div className="dash-toolbar">
-      <div className="select-wrap"><button className="select-button" onClick={()=>setRangeOpen(o=>!o)}>{rangeLabel} <ChevronDown size={14}/></button>{rangeOpen && <><button className="menu-backdrop" aria-label="Close range menu" onClick={()=>setRangeOpen(false)}/><div className="select-menu">{(["today",7,30,"month","custom","all"] as ReportRange[]).map(r=><button key={String(r)} className={range===r?"on":""} onClick={()=>{setRange(r); if(r!=="custom") setRangeOpen(false);}}>{r === "today" ? "Today" : r === "all" ? "All time" : r === "month" ? "This month" : r === "custom" ? "Custom date…" : `Last ${r} days`}</button>)}{range==="custom" && <div className="custom-dates" onClick={e=>e.stopPropagation()}><label>From<input type="date" value={customFrom} max={customTo || undefined} onChange={e=>setCustomFrom(e.target.value)}/></label><label>To<input type="date" value={customTo} min={customFrom || undefined} onChange={e=>setCustomTo(e.target.value)}/></label><button className="outline-button" onClick={()=>setRangeOpen(false)}>Apply</button></div>}</div></>}</div>
+      <div className="select-wrap"><button className="select-button" onClick={()=>setRangeOpen(o=>!o)}>{rangeLabel} <ChevronDown size={14}/></button>{rangeOpen && <><button className="menu-backdrop" aria-label="Close range menu" onClick={()=>setRangeOpen(false)}/><div className="select-menu">{(["today",7,30,"month","custom","all"] as ReportRange[]).map(r=><button key={String(r)} className={range===r?"on":""} onClick={()=>{setRange(r); if(r==="custom"&&!customFrom){const m=new Date();setCustomFrom(`${m.getFullYear()}-${String(m.getMonth()+1).padStart(2,"0")}-01`);} if(r!=="custom") setRangeOpen(false);}}>{r === "today" ? "Today" : r === "all" ? "All time" : r === "month" ? "This month" : r === "custom" ? "Custom date…" : `Last ${r} days`}</button>)}{range==="custom" && <div className="custom-dates" onClick={e=>e.stopPropagation()}><label>From<input type="date" value={customFrom} max={customTo || new Date().toISOString().slice(0,10)} onChange={e=>setCustomFrom(e.target.value)}/></label><label>To<input type="date" value={customTo} min={customFrom || undefined} max={new Date().toISOString().slice(0,10)} onChange={e=>setCustomTo(e.target.value)}/></label><button className="primary-button" style={{width:"100%",justifyContent:"center",marginTop:4}} disabled={!customValid} onClick={()=>setRangeOpen(false)}>Apply</button>{!customValid&&customFrom&&customTo&&<p style={{fontSize:10,color:"var(--red)",marginTop:4}}>From must be before To</p>}</div>}</div></>}</div>
       <div className="select-wrap"><button className="select-button" onClick={()=>setCashierOpen(o=>!o)}>{cashier} <ChevronDown size={14}/></button>{cashierOpen && <><button className="menu-backdrop" aria-label="Close cashier menu" onClick={()=>setCashierOpen(false)}/><div className="select-menu">{["All cashiers",...cashiers].map(c=><button key={c} className={cashier===c?"on":""} onClick={()=>{setCashier(c);setCashierOpen(false);}}>{c}</button>)}</div></>}</div>
       <div className="select-wrap"><button className="select-button" onClick={()=>setCategoryOpen(o=>!o)}>{category} <ChevronDown size={14}/></button>{categoryOpen && <><button className="menu-backdrop" aria-label="Close category menu" onClick={()=>setCategoryOpen(false)}/><div className="select-menu">{["All categories",...categories].map(c=><button key={c} className={category===c?"on":""} onClick={()=>{setCategory(c);setCategoryOpen(false);}}>{c}</button>)}</div></>}</div>
       <div className="select-wrap"><button className="select-button" onClick={()=>setPaymentOpen(o=>!o)}>{payment} <ChevronDown size={14}/></button>{paymentOpen && <><button className="menu-backdrop" aria-label="Close payment menu" onClick={()=>setPaymentOpen(false)}/><div className="select-menu">{["All payments",...payments].map(m=><button key={m} className={payment===m?"on":""} onClick={()=>{setPayment(m);setPaymentOpen(false);}}>{m}</button>)}</div></>}</div>
@@ -1956,9 +1995,8 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
       {showProfit && <Stat label="Gross profit" value={money(Math.round(grossProfit * 100) / 100)} change={hasCostData ? `${margin}% margin` : "no costs set"} caption={rangeLabel.toLowerCase()} icon={Wallet} tone="purple" negative={grossProfit<0}/>}
     </section>
 
-    <section className="dashboard-grid">
-      <div className="panel">
-        <PanelHeader title="Sales trend" sub={`${metricLabel} per ${monthly ? "month" : "day"} — ${rangeLabel}, refunds excluded`}/>
+    <section className="dashboard-grid">      <div className="panel">
+        <PanelHeader title="Sales trend" sub={`${metricLabel} per ${monthly ? "month" : "day"} — ${rangeLabel}`}/>
         <div className="metric-tabs" role="tablist" aria-label="Chart metric">
           <button role="tab" aria-selected={metric==="revenue"} className={metric==="revenue"?"on":""} onClick={()=>setMetric("revenue")}>Revenue</button>
           <button role="tab" aria-selected={metric==="orders"} className={metric==="orders"?"on":""} onClick={()=>setMetric("orders")}>Orders</button>
@@ -1986,7 +2024,7 @@ function Dashboard({ navigate, sales, catalog, role, userName }: { navigate: (s:
         <PanelHeader title="Low stock" sub="Products that need attention" action="View inventory" onAction={()=>navigate("Stock")}/>
         {catalog.filter(p=>p.stock<LOW_STOCK_LIMIT).length===0 ? <div className="empty">All products are well stocked.</div> : <div className="stock-list">{catalog.filter(p=>p.stock<LOW_STOCK_LIMIT).sort((a,b)=>a.stock-b.stock).slice(0,4).map(p=>
           <div className="stock-item" key={p.sku}><div className="product-placeholder"><Package size={18}/></div><div className="stock-name"><strong>{p.name}</strong><span>{p.sku}</span></div><div className="stock-count"><strong className={p.stock===0?"critical":""}>{p.stock} units</strong><span className={`status ${p.stock===0?"refunded":"pending"}`}>{p.stock===0?"OUT OF STOCK":"LOW STOCK"}</span></div></div>)}</div>}
-        <button className="outline-button" onClick={()=>navigate("Stock")}>View inventory <ArrowUpRight size={15}/></button>
+        <button className="outline-button" style={{marginTop:"4px"}} onClick={()=>navigate("Stock")}>View inventory <ArrowUpRight size={15}/></button>
       </div>
     </section>
 
@@ -2181,7 +2219,7 @@ function StockPage({ catalog, canManage, onAdjust, embed }: { catalog: Product[]
   </>;
 }
 
-type SalesTab = "pos" | "history" | "returns" | "held" | "today" | "possettings";
+type SalesTab = "pos" | "orders" | "history" | "returns" | "held" | "today" | "possettings";
 /** A suspended checkout as returned by /api/held-sales. */
 type HeldSaleLite = { id: string; lines: SaleLine[]; itemCount: number; heldBy: string; heldAt: string; note?: string };
 
@@ -2199,6 +2237,8 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
   const [loadingPage, setLoadingPage] = useState(false);
   const [cart, setCart] = useState<SaleLine[]>([]);
   const [productQuery, setProductQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState("All");
+  const [posCustomer, setPosCustomer] = useState("Walk-in Customer");
   const [busy, setBusy] = useState(false);
   // Ref mirrors `busy` synchronously: two clicks in the same tick must not both pass the guard.
   const busyRef = useRef(false);
@@ -2319,11 +2359,12 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
   }, [embed, tab, openPayment, holdCurrent, switchTab]);
 
   const posTabs: { key: SalesTab; label: string }[] = [
-    { key: "pos", label: "New Sale" },
-    { key: "held", label: "Held / Suspended" },
-    { key: "today", label: "Today's Sales" },
+    { key: "pos",    label: "New Sale" },
+    { key: "orders", label: "Orders" },
+    { key: "held",   label: "Held" },
+    { key: "today",  label: "Today" },
     { key: "returns", label: "Returns" },
-    { key: "possettings", label: "POS Settings" },
+    { key: "possettings", label: "Settings" },
   ];
   return <>{!embed && <PageHeading title={pageInfo[tab === "history" ? "Transactions" : "POS"].title} sub={pageInfo[tab === "history" ? "Transactions" : "POS"].subtitle}/>}
   {!embed && <div className="subnav subnav-wrap">
@@ -2333,7 +2374,153 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
   {heldFlash && <p className="checkout-success" role="status">{heldFlash}<button className="banner-close" aria-label="Dismiss" onClick={() => setHeldFlash(null)}><X size={14}/></button></p>}
   {refundDone && <p className="checkout-success success-banner" role="status">Refund for {refundDone} recorded successfully.</p>}
   {tab==="history" && <div className="panel table-panel"><div className={`toolbar ${loadingPage?"row-loading":""}`}><strong>{serverSales ? (historyQuery ? `${serverMeta.total} matching sales` : `${serverMeta.total} sales`) : (historyQuery ? `${historyMatches.length} of ${sales.length} sales` : `${sales.length} sales`)}</strong><div className="filter"><Search size={15}/><input placeholder="Search invoice or customer" value={historyQuery} onChange={e=>{setHistoryQuery(e.target.value);setPage(1);}}/>{historyQuery&&<button className="filter-clear" aria-label="Clear sales search" onClick={()=>{setHistoryQuery("");setPage(1);}}><X size={13}/></button>}</div><button className="outline-button" onClick={()=>setCardsView(v=>!v)}>{cardsView?"Table view":"Card view"}</button></div>{serverError&&<p className="offline-banner" role="alert">{serverError}</p>}{historyMatches.length===0?<div className="empty">{loadingPage?"Loading…":"No sales match your search."}</div>:cardsView?<div className={`receipts-grid ${loadingPage?"row-loading":""}`}>{historyMatches.map(s=><div className="panel receipt-card" key={s.id}><div className="receipt-card-head"><strong>{s.id}</strong><span className={`status ${statusClass(s.status)}`}>{s.status}</span></div><p>{s.customer} · {s.date}</p><div className="receipt-card-total"><span>{itemCount(s)} items</span><strong>{money(saleTotal(s))}</strong></div><button className="outline-button" onClick={()=>setViewing(s)}>View receipt</button></div>)}</div>:<SalesTable sales={historyMatches} onView={setViewing} onRefund={startRefund}/>}{serverSales && serverMeta.pages > 1 && (<div className="pager"><button className="outline-button" disabled={page<=1} onClick={()=>setPage(page-1)}>‹ Prev</button><span>Page {page} of {serverMeta.pages} · {serverMeta.total} sales</span><button className="outline-button" disabled={page>=serverMeta.pages} onClick={()=>setPage(page+1)}>Next ›</button></div>)}</div>}
-  {tab==="pos" && <div className="pos-layout"><div className="panel product-picker"><div className="toolbar"><h2>Choose products</h2><div className="filter"><Search size={15}/><input ref={posSearchRef} value={productQuery} onChange={e=>setProductQuery(e.target.value)} placeholder="Search products (F2)"/></div></div><div className="picker-grid">{visibleProducts.map(p=>{const inCart=cart.find(l=>l.sku===p.sku)?.qty??0;const left=p.stock-inCart;return <button key={p.sku} className="picker-card" disabled={left<=0} onClick={()=>{setJustCheckedOut(null);setCart(c=>c.some(l=>l.sku===p.sku)?c.map(l=>l.sku===p.sku?{...l,qty:l.qty+1}:l):[...c,toLine(p)]);}}><div className="picker-thumb">{p.image?<img src={p.image} alt=""/>:<div className="product-placeholder"><Package size={20}/></div>}</div><strong>{p.name}</strong><span>{money(p.price)} · {left<=0?"none left":"in stock: "+left}</span></button>;})}{visibleProducts.length===0&&<div className="empty">No products match your search.</div>}</div></div><div className="panel cart-panel"><div className="panel-header"><h2>Current sale</h2><span className="status paid">{cart.reduce((n,l)=>n+l.qty,0)} items</span></div>{cart.length===0?<div className="empty">Your cart is empty</div>:<div className="cart-lines">{cart.map((l,i)=><div className="cart-line" key={l.sku}><div><strong>{l.name}</strong><span>{money(l.price)} × {l.qty}</span></div><button aria-label={`Remove ${l.name}`} onClick={()=>setCart(c=>c.filter((_,idx)=>idx!==i))}><X size={14}/></button></div>)}</div>}<div className="cart-total"><span>Subtotal</span><strong>{money(total)}</strong></div>{justCheckedOut&&<p className="checkout-success" role="status">Sale {justCheckedOut.id} recorded.{justCheckedOut.changeDue ? ` Change due ${money(justCheckedOut.changeDue)}.` : ""}</p>}<div className="modal-actions"><button className="outline-button" disabled={cart.length===0||busy} onClick={holdCurrent} title="Hold sale (F8)">Hold sale</button><button className="primary-button checkout" disabled={cart.length===0||busy} onClick={openPayment} title="Charge (F4)">{busy ? "Charging…" : `Charge ${money(total)}`}</button></div></div></div>}
+  {tab==="pos" && (() => {
+    const categories = ["All", ...Array.from(new Set(catalog.map(p => p.category))).sort()];
+    const filtered = visibleProducts.filter(p => activeCategory === "All" || p.category === activeCategory);
+    const discount = 0; // reserved for PaymentModal
+    const tax = settings?.taxEnabled && (settings.taxRatePercent ?? 0) > 0
+      ? Math.round(total * ((settings.taxRatePercent ?? 0) / 100) * 100) / 100 : 0;
+    const grandTotal = Math.round((total + (settings?.taxInclusive ? 0 : tax)) * 100) / 100;
+    return (
+      <div className="pos-shell">
+        {/* ── Top bar: search + customer ── */}
+        <div className="pos-topbar">
+          <div className="pos-search">
+            <Search size={15} className="pos-search-icon"/>
+            <input
+              ref={posSearchRef}
+              value={productQuery}
+              onChange={e => setProductQuery(e.target.value)}
+              placeholder="Search product or scan barcode… (F2)"
+            />
+            {productQuery && <button className="filter-clear" onClick={() => setProductQuery("")}><X size={13}/></button>}
+          </div>
+          <div className="pos-customer-wrap">
+            <Users size={14}/>
+            <input
+              value={posCustomer}
+              onChange={e => setPosCustomer(e.target.value)}
+              placeholder="Customer name"
+              className="pos-customer-input"
+            />
+          </div>
+        </div>
+
+        {/* ── Main body ── */}
+        <div className="pos-body">
+          {/* LEFT: categories + product grid */}
+          <div className="pos-products">
+            {/* Category pills */}
+            <div className="pos-categories">
+              {categories.map(cat => (
+                <button
+                  key={cat}
+                  className={`pos-cat-pill ${activeCategory === cat ? "active" : ""}`}
+                  onClick={() => setActiveCategory(cat)}
+                >{cat}</button>
+              ))}
+            </div>
+
+            {/* Product grid */}
+            <div className="pos-grid">
+              {filtered.length === 0
+                ? <div className="empty" style={{gridColumn:"1/-1"}}>No products match.</div>
+                : filtered.map(p => {
+                    const inCart = cart.find(l => l.sku === p.sku)?.qty ?? 0;
+                    const left = p.stock - inCart;
+                    return (
+                      <button
+                        key={p.sku}
+                        className={`pos-product-card ${left <= 0 ? "out" : ""}`}
+                        disabled={left <= 0}
+                        onClick={() => {
+                          setJustCheckedOut(null);
+                          setCart(c => c.some(l => l.sku === p.sku)
+                            ? c.map(l => l.sku === p.sku ? { ...l, qty: l.qty + 1 } : l)
+                            : [...c, toLine(p)]);
+                        }}
+                      >
+                        <div className="pos-product-img">
+                          {p.image
+                            ? <img src={p.image} alt=""/>
+                            : <div className="product-placeholder"><Package size={22}/></div>}
+                        </div>
+                        <span className="pos-product-name">{p.name}</span>
+                        <span className="pos-product-price">{money(p.price)}</span>
+                        {left <= 0
+                          ? <span className="pos-product-stock out">Out of stock</span>
+                          : inCart > 0
+                            ? <span className="pos-product-stock in-cart">{inCart} in cart</span>
+                            : <span className="pos-product-stock">{left} left</span>}
+                      </button>
+                    );
+                  })
+              }
+            </div>
+          </div>
+
+          {/* RIGHT: order panel */}
+          <div className="pos-order">
+            <div className="pos-order-header">
+              <h2>Current Order</h2>
+              <span className="pos-order-count">{cart.reduce((n, l) => n + l.qty, 0)} items</span>
+            </div>
+
+            {/* Line items */}
+            <div className="pos-order-lines">
+              {cart.length === 0
+                ? <div className="pos-order-empty">Add products to start a sale</div>
+                : cart.map((l, i) => (
+                    <div className="pos-order-line" key={l.sku}>
+                      <div className="pos-order-line-info">
+                        <strong>{l.name}</strong>
+                        <span>{money(l.price)} × {l.qty}</span>
+                      </div>
+                      <div className="pos-order-line-right">
+                        <strong>{money(l.price * l.qty)}</strong>
+                        <div className="pos-qty-ctrl">
+                          <button onClick={() => setCart(c => c.map((x, j) => j === i && x.qty > 1 ? { ...x, qty: x.qty - 1 } : x))} aria-label="Decrease">−</button>
+                          <span>{l.qty}</span>
+                          <button onClick={() => setCart(c => c.map((x, j) => j === i ? { ...x, qty: x.qty + 1 } : x))} aria-label="Increase">+</button>
+                        </div>
+                        <button className="pos-remove-btn" aria-label={`Remove ${l.name}`} onClick={() => setCart(c => c.filter((_, j) => j !== i))}><X size={13}/></button>
+                      </div>
+                    </div>
+                  ))
+              }
+            </div>
+
+            {/* Totals */}
+            <div className="pos-order-totals">
+              <div className="pos-total-row"><span>Subtotal</span><span>{money(total)}</span></div>
+              <div className="pos-total-row"><span>Discount</span><span>{money(discount)}</span></div>
+              {settings?.taxEnabled && (settings.taxRatePercent ?? 0) > 0 && (
+                <div className="pos-total-row"><span>{settings.taxLabel || "Tax"} ({settings.taxRatePercent}%)</span><span>{money(tax)}</span></div>
+              )}
+              <div className="pos-total-row grand"><span>TOTAL</span><span>{money(grandTotal)}</span></div>
+            </div>
+
+            {/* Success flash */}
+            {justCheckedOut && (
+              <p className="checkout-success" role="status">
+                ✓ {justCheckedOut.id} recorded{justCheckedOut.changeDue ? ` · Change: ${money(justCheckedOut.changeDue)}` : ""}
+              </p>
+            )}
+
+            {/* Action buttons */}
+            <div className="pos-order-actions">
+              <button className="outline-button pos-action-btn" disabled={cart.length === 0 || busy} onClick={holdCurrent} title="Hold sale (F8)">
+                Hold Order
+              </button>
+              <button className="primary-button pos-pay-btn" disabled={cart.length === 0 || busy} onClick={openPayment} title="Charge (F4)">
+                {busy ? "Processing…" : `PAY ${money(grandTotal)}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  })()}
   {tab==="held" && <div className="panel table-panel"><div className="toolbar"><strong>Held / suspended sales</strong><span className="you-chip">holding never reserves stock — stock policy applies when the sale is resumed and charged</span></div></div>}
   {tab==="held" && (heldList.length===0 ? <div className="empty">No held sales. Use “Hold sale” on New Sale to park a cart mid-checkout.</div> : <div className="pos-layout">{heldList.map(h=><div className="panel cart-panel" key={h.id}><div className="panel-header"><h2>{h.id}</h2><span className="status paid">{h.itemCount} items</span></div><div className="cart-lines">{h.lines.map(l=><div className="cart-line" key={l.sku}><div><strong>{l.name}</strong><span>{money(l.price)} × {l.qty}</span></div></div>)}</div><p className="form-intro">Held by {h.heldBy} · {new Date(h.heldAt).toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"})}{h.note?` · ${h.note}`:""}</p><div className="modal-actions"><button className="primary-button" disabled={busy} onClick={()=>resumeHeld(h)}>Resume into current sale</button><button className="outline-button" disabled={busy} onClick={()=>discardHeld(h)}>Discard</button></div></div>)}</div>)}
   {tab==="today" && <div className="panel table-panel"><div className="toolbar"><strong>Sales recorded today</strong><span className="you-chip">{todaysSales.length} sale{todaysSales.length===1?"":"s"} · {money(todaysSales.reduce((t,s)=>t+saleTotal(s),0))} in sales today</span></div>{todaysSales.length===0?<div className="empty">No sales recorded today yet.</div>:<DataTable headers={["INVOICE","CUSTOMER","PAYMENT","AMOUNT","STATUS"]} rows={todaysSales.map(s=>[s.id,s.customer,s.payment,money(saleTotal(s)),s.status])}/>}</div>}
@@ -2346,9 +2533,92 @@ function Sales({ catalog, sales, onRecord, onRefund, storeName, storeLocation, r
     ["Loyalty", settings.loyaltyEnabled !== false ? `${settings.loyaltyEarnRate ?? 1} point(s) per ${settings.currency || "$"}1 on Paid sales` : "Off"],
   ]}/>}</div>}
   {tab==="returns" && <><div className="panel table-panel"><div className="toolbar"><strong>Refundable sales</strong><div className="filter"><Search size={15}/><input placeholder="Search sales" readOnly/></div><button className="select-button">All payments <ChevronDown size={14}/></button></div>{refundable.length===0?<div className="empty">Nothing left to refund.</div>:<SalesTable sales={refundable} onView={setViewing} onRefund={startRefund}/>}</div><div className="panel table-panel"><div className="toolbar"><strong>{refunds.length} refunds</strong></div>{refunds.length===0?<div className="empty">No refunds yet.</div>:<DataTable headers={["INVOICE","CUSTOMER","DATE","REFUNDED","REASON","STATUS"]} rows={refunds.map(s=>[s.id,s.customer,s.date,money(saleTotal(s)),s.refundReason||"—","Refunded"])}/>}</div></>}
+  {tab==="orders" && <OrdersView sales={sales} onView={setViewing} onRefund={startRefund}/>}
   {viewing && <ReceiptModal sale={viewing} onClose={()=>setViewing(null)} onRefund={startRefund} storeName={storeName} storeLocation={storeLocation} receiptFooter={receiptFooter} currency={currency}/>}
-  {paying && <PaymentModal total={total} itemCount={cart.reduce((n,l)=>n+l.qty,0)} currency={currency} role={role} busy={busy} onClose={()=>setPaying(false)} onConfirm={doCheckout} methods={methods}/>}
+  {paying && <PaymentModal total={total} itemCount={cart.reduce((n,l)=>n+l.qty,0)} currency={currency} role={role} busy={busy} onClose={()=>setPaying(false)} onConfirm={doCheckout} methods={methods} defaultCustomer={posCustomer}/>}
   {refunding && <div className="modal-backdrop" onClick={()=>setRefunding(null)}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-header"><h2>Refund {refunding.id}</h2><button aria-label="Close refund dialog" onClick={()=>setRefunding(null)}><X size={18}/></button></div><p className="refund-summary">Refunding <strong>{money(saleTotal(refunding))}</strong> ({itemCount(refunding)} items) from <strong>{refunding.customer}</strong> back via {refunding.payment}.</p><label>Reason<textarea autoFocus placeholder="e.g. Damaged goods, customer changed their mind" value={refundNote} onChange={e=>setRefundNote(e.target.value)}/></label><div className="modal-actions"><button className="outline-button" onClick={()=>setRefunding(null)}>Cancel</button><button className="primary-button" disabled={busy} onClick={confirmRefund}>{busy ? "Refunding…" : `Confirm refund ${money(saleTotal(refunding))}`}</button></div></div></div>}</>;
+}
+
+/** Orders sub-view: searchable, filterable table of all sales with status pills. */
+function OrdersView({ sales, onView, onRefund }: { sales: Sale[]; onView: (s: Sale) => void; onRefund: (s: Sale) => void }) {
+  const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"All" | SaleStatus>("All");
+  const STATUS_FILTERS: Array<"All" | SaleStatus> = ["All", "Paid", "Pending", "Refunded"];
+
+  const rows = sales.filter(s => {
+    const matchStatus = statusFilter === "All" || s.status === statusFilter;
+    const term = q.toLowerCase();
+    const matchQ = !term || s.id.toLowerCase().includes(term) || s.customer.toLowerCase().includes(term) || s.payment.toLowerCase().includes(term);
+    return matchStatus && matchQ;
+  });
+
+  return (
+    <div className="panel table-panel">
+      {/* Search + status filter bar */}
+      <div className="orders-toolbar">
+        <div className="orders-search">
+          <Search size={14}/>
+          <input
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            placeholder="Search order / customer / payment…"
+          />
+          {q && <button className="filter-clear" onClick={() => setQ("")}><X size={12}/></button>}
+        </div>
+        <div className="orders-filters">
+          {STATUS_FILTERS.map(f => (
+            <button
+              key={f}
+              className={`orders-filter-pill ${statusFilter === f ? "active" : ""}`}
+              onClick={() => setStatusFilter(f)}
+            >{f}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Count */}
+      <p className="orders-count">
+        {rows.length} order{rows.length !== 1 ? "s" : ""}
+        {statusFilter !== "All" ? ` · ${statusFilter}` : ""}
+        {q ? ` matching "${q}"` : ""}
+      </p>
+
+      {/* Table */}
+      {rows.length === 0
+        ? <div className="empty">No orders match your filters.</div>
+        : <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  {["ORDER NO.", "CUSTOMER", "DATE", "ITEMS", "PAYMENT", "TOTAL", "STATUS", ""].map(h => <th key={h}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(s => (
+                  <tr key={s.id}>
+                    <td><strong>{s.id}</strong></td>
+                    <td>{s.customer}</td>
+                    <td>{s.createdAt ? new Date(s.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : s.date}</td>
+                    <td>{itemCount(s)}</td>
+                    <td>{s.payment}</td>
+                    <td><strong>{money(saleTotal(s))}</strong></td>
+                    <td><span className={`status ${statusClass(s.status)}`}>{s.status}</span></td>
+                    <td>
+                      <div className="row-actions">
+                        <button className="text-button" onClick={() => onView(s)}>View</button>
+                        {s.status !== "Refunded" && (
+                          <button className="text-button danger" onClick={() => onRefund(s)}>Refund</button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+      }
+    </div>
+  );
 }
 
 function SalesTable({ sales, onView, onRefund }: { sales: Sale[]; onView: (s: Sale) => void; onRefund: (s: Sale) => void }) {
@@ -2356,10 +2626,9 @@ function SalesTable({ sales, onView, onRefund }: { sales: Sale[]; onView: (s: Sa
 }
 
 /** Checkout confirmation: payment method, customer, discount (managers+), cash handling — then record. */
-function PaymentModal({ total, itemCount, currency, role, busy, onClose, onConfirm, methods: enabledMethods }: { total: number; itemCount: number; currency: string; role: StaffRole; busy: boolean; onClose: () => void; onConfirm: (p: SalePayment) => void; methods?: string[] }) {
-  // Enabled methods come from Payment Settings (falls back to the classic three).
+function PaymentModal({ total, itemCount, currency, role, busy, onClose, onConfirm, methods: enabledMethods, defaultCustomer }: { total: number; itemCount: number; currency: string; role: StaffRole; busy: boolean; onClose: () => void; onConfirm: (p: SalePayment) => void; methods?: string[]; defaultCustomer?: string }) {
   const METHODS = (enabledMethods && enabledMethods.length > 0 ? enabledMethods : ["Cash", "ABA Pay", "Credit"]) as string[];
-  const [customer, setCustomer] = useState("");
+  const [customer, setCustomer] = useState(defaultCustomer && defaultCustomer !== "Walk-in Customer" ? defaultCustomer : "");
   const [method, setMethod] = useState<string>("Cash");
   const [discount, setDiscount] = useState("");
   const [cash, setCash] = useState("");
@@ -2705,7 +2974,7 @@ function LoginScreen({ onLogin, settings }: { onLogin: (name: string, role: Staf
     } finally { setBusy(false); }
   };
   return <div className="login-backdrop"><div className="login-card">
-    <div className="login-brand"><div className="brand-mark">{settings.name.charAt(0).toUpperCase()}</div><div><strong>{settings.name}</strong><span>POS SYSTEM</span></div></div>
+    <div className="login-brand"><div className="brand-mark">{settings.name.charAt(0).toUpperCase()}</div><div><strong>{settings.name}</strong></div></div>
     <h1>Sign in</h1>
     <p className="login-sub">Use your staff name and PIN to open the register.</p>
     <form onSubmit={e => { e.preventDefault(); submit(); }}>
