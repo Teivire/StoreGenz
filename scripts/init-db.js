@@ -26,11 +26,11 @@ function resolveUri() {
   const envPath = path.join(__dirname, "..", ".env.local");
   if (fs.existsSync(envPath)) {
     for (const line of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
-      const m = line.match(/^\s*MONGODB_URI\s*=\s*(.+)\s*$/);
+      const m = line.match(/^\s*mongodb+srv://borkteikh_db_user:<db_password>@cluster0.msiuwas.mongodb.net/\s*=\s*(.+)\s*$/);
       if (m) return m[1].trim().replace(/^["']|["']$/g, "");
     }
   }
-  return `mongodb://127.0.0.1:27017/${DB_NAME}`;
+  return `mongodb+srv://borkteikh_db_user:<db_password>@cluster0.msiuwas.mongodb.net/`;
 }
 
 const validators = {
